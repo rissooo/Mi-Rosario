@@ -1,0 +1,21 @@
+schema: spec-driven
+
+context: |
+  Proyecto: Mi Rosario. App web para reportar baches y falta de luz en Rosario,
+  con mapa, confirmaciones de vecinos y moderación. Uso real, no es para hackathon.
+  Stack: Next.js (App Router), TypeScript, Tailwind, Supabase (Auth, Postgres,
+  Storage, RLS), Leaflet + OpenStreetMap, Vercel.
+  Ya hecho: repo, deploy, Supabase conectado, login con Google.
+  UI en español; código y commits en inglés.
+  Fuera de alcance por ahora: rellenar baches, rol institucional, mapa de calor,
+  estadísticas, notificaciones.
+
+rules:
+  proposal:
+    - Mantener el alcance chico: un cambio, un resultado que se pueda probar en un celular.
+  specs:
+    - Usar WHEN/THEN en los escenarios.
+    - Los permisos se definen en la base de datos (RLS), nunca solo en la interfaz.
+    - La IA solo sugiere; el usuario confirma antes de publicar.
+    - Una confirmación por cuenta y reporte; solo un moderador cierra un incidente.
+    - Para alumbrado usar "falta de luz", nunca "zona insegura".

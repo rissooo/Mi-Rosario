@@ -1,4 +1,25 @@
 import Image from "next/image";
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+import { createClient } from "@/utils/supabase/server";
+import { LoginButton, LogoutButton } from "./auth-buttons";
+
+async function UserStatus() {
+  const supabase = createClient(await cookies());
+  const { data } = await supabase.auth.getClaims();
+  const email = data?.claims.email;
+
+  if (!email) {
+    return <LoginButton />;
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-4 sm:flex-row">
+      <p className="text-zinc-600 dark:text-zinc-400">Sesión iniciada como {email}</p>
+      <LogoutButton />
+    </div>
+  );
+}
 
 export default function Home() {
   return (
@@ -12,6 +33,9 @@ export default function Home() {
           height={20}
           priority
         />
+        <Suspense fallback={<p>Cargando sesión...</p>}>
+          <UserStatus />
+        </Suspense>
         <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
           <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
             To get started, edit the{" "}

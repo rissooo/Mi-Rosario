@@ -1,8 +1,13 @@
 schema: spec-driven
 
 context: |
-  Proyecto: Mi Rosario. App web para reportar baches y falta de luz en Rosario,
-  con mapa, confirmaciones de vecinos y moderación. Uso real, no es para hackathon.
+  Proyecto: Mi Rosario. App web para reportar incidentes urbanos en Rosario.
+  Catálogo inicial del MVP, exclusivamente:
+    - pothole — Baches
+    - missing-light — Falta de luz
+    - damaged-sidewalk — Veredas dañadas
+    - faulty-traffic-light — Semáforos defectuosos
+  Con mapa, confirmaciones de vecinos y moderación. Uso real, no es para hackathon.
   Stack: Next.js (App Router), TypeScript, Tailwind, Supabase (Auth, Postgres,
   Storage, RLS), Leaflet + OpenStreetMap, Vercel.
   Ya hecho: repo, deploy, Supabase conectado, login con Google.
@@ -12,7 +17,7 @@ context: |
 
 rules:
   proposal:
-    - Mantener el alcance chico: un cambio, un resultado que se pueda probar en un celular.
+    - "Mantener el alcance chico: un cambio, un resultado que se pueda probar en un celular."
   specs:
     - Usar WHEN/THEN en los escenarios.
     - Los permisos se definen en la base de datos (RLS), nunca solo en la interfaz.

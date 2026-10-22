@@ -57,7 +57,9 @@ AI severity is nullable; the citizen corrects/selects it before publication. Pub
 
 ## Input and output contracts
 
-`ReportFields` requires title, description, categoryId, severity, location `{ latitude, longitude }` and `reviewed: true`. `PublishReportRequest` adds one original `File`; serialize report fields as the multipart `report` JSON field, with the file in `image` and a required UUID `Idempotency-Key` header. The key is scoped to account + operation in the future backend.
+`ReportFields` requires title, description, categoryId, severity, location `{ latitude, longitude, address }` and `reviewed: true`.
+
+**Dirección (change `add-report-address`, pendiente de revisión de Agus y Valen).** `address` es `{ street, number }`. `street` es la calle: se le quitan los espacios sobrantes y debe tener de 2 a 80 caracteres. `number` es la altura: un entero de 1 a 99999, o `null` cuando el lugar no tiene altura (un parque o una plaza). Las coordenadas ubican el marcador en el mapa; la dirección es lo que leen los vecinos. El contrato no verifica que las dos describan el mismo lugar. `Report` devuelve la ubicación con la misma forma. `PublishReportRequest` adds one original `File`; serialize report fields as the multipart `report` JSON field, with the file in `image` and a required UUID `Idempotency-Key` header. The key is scoped to account + operation in the future backend.
 
 `Report` adds server-owned ID, status, photo, UTC creation/update timestamps, citizen verification facts, institutional availability/evidence and nullable resolution time. It has no email, private author identity, original object path or publication bookkeeping. `Photo` contains ID, authorized HTTPS viewing URL, URL expiration, MIME and byte size. The URL represents a safe viewing derivative; the unchanged original remains private. Synthetic URLs use `example.invalid` and are intentionally not fetchable photographs.
 
@@ -92,6 +94,7 @@ Malformed JSON remains 400 INVALID_JSON. `validatePublishReportRequest` is a gen
 
 - Strict object shapes, required fields and nested unknown-field rejection; trimmed text by Unicode code points. Provisional title 5–120, description 10–1000.
 - Active categories, three severities, four-stage type, finite coordinate ranges (not a Rosario municipality polygon), UUID and valid UTC calendar dates.
+- Dirección obligatoria en la ubicación: calle de 2 a 80 caracteres sin espacios sobrantes, altura entera de 1 a 99999 o `null`, sin campos adicionales.
 - Required original `File`, allowed MIME and 1 byte–4 MiB metadata. **These checks do not decode the image or verify its signature.** Real content/decoded-image limits and total multipart size belong to the future transport. Constants document 4 MiB + 64 KiB total multipart and 16 KiB JSON limits.
 - Nullable AI fields, at most five warnings of 1–200 code points, no authoritative location/status/identity fields in suggestions. Validators check structure, not the truth of text, confidence, language or visual evidence.
 - Public DTO shapes, HTTPS photo URL syntax, threshold/count/corroboration consistency, and default rejection of institutional data in MVP report examples. Validating a URL never authorizes its access.

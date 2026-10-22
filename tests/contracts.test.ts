@@ -77,11 +77,40 @@ test("text is trimmed with Unicode boundaries; title limits are provisional", ()
 });
 
 test("coordinates reject non-finite numbers, strings, out-of-range values and missing keys", () => {
+  const address = fields.location.address;
   for (const latitude of [NaN, Infinity, -91, 91, "-32.9", null, undefined]) {
-    assert.equal(validateReportFields({ ...fields, location: { latitude, longitude: 0 } }).valid, false);
+    assert.equal(validateReportFields({ ...fields, location: { latitude, longitude: 0, address } }).valid, false);
   }
-  for (const longitude of [-181, 181, "0"]) assert.equal(validateReportFields({ ...fields, location: { latitude: 0, longitude } }).valid, false);
-  assert.equal(validateReportFields({ ...fields, location: { latitude: -90, longitude: 180 } }).valid, true);
+  for (const longitude of [-181, 181, "0"]) assert.equal(validateReportFields({ ...fields, location: { latitude: 0, longitude, address } }).valid, false);
+  assert.equal(validateReportFields({ ...fields, location: { latitude: -90, longitude: 180, address } }).valid, true);
+});
+
+test("location requires a street address with an optional house number", () => {
+  const withAddress = (address: unknown) => ({ ...fields, location: { ...fields.location, address } });
+  assert.equal(validateReportFields(withAddress({ street: "Córdoba", number: 1250 })).valid, true);
+  assert.equal(validateReportFields(withAddress({ street: "Parque Independencia", number: null })).valid, true);
+  for (const number of [1, 99999]) assert.equal(validateReportFields(withAddress({ street: "Córdoba", number })).valid, true);
+  for (const number of [0, -5, 12.5, 100000, "1250", undefined]) {
+    const parsed = validateReportFields(withAddress({ street: "Córdoba", number }));
+    assert.equal(parsed.valid, false, String(number));
+    if (!parsed.valid) assert.ok(parsed.error.fieldErrors?.["location.address.number"]?.[0]?.startsWith("Ingresá"));
+  }
+  for (const street of ["", " ", "a", "  b  ", "c".repeat(81), null, 12]) {
+    assert.equal(validateReportFields(withAddress({ street, number: 1 })).valid, false, String(street));
+  }
+  assert.equal(validateReportFields(withAddress({ street: "Córdoba", number: 1, floor: 3 })).valid, false);
+  assert.equal(validateReportFields(withAddress(null)).valid, false);
+
+  const missing = { ...fields, location: { latitude: fields.location.latitude, longitude: fields.location.longitude } };
+  assert.equal(validateReportFields(missing).valid, false);
+  assert.equal(validateReport({ ...report, location: missing.location }).valid, false);
+  assert.equal(validateReport(report).valid, true);
+});
+
+test("published street is trimmed like title and description", () => {
+  const parsed = validateReportFields({ ...fields, location: { ...fields.location, address: { street: "  Córdoba  ", number: 1250 } } });
+  assert.equal(parsed.valid, true);
+  if (parsed.valid) assert.deepEqual(parsed.value.location.address, { street: "Córdoba", number: 1250 });
 });
 
 test("all AI examples are valid nullable suggestions, including insufficient traffic-light evidence", () => {

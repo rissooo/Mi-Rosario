@@ -1,14 +1,14 @@
-# Gemini / Antigravity entry point — Agus
+# Punto de entrada de Gemini / Antigravity — Agus
 
-Do not assume shared files were automatically loaded. Before making changes, explicitly read:
+No supongas que los archivos compartidos se cargaron automáticamente. Antes de hacer cambios, leé explícitamente:
 
-1. Root `AGENTS.md` and any applicable nested instructions.
-2. `openspec/config.yaml` and the selected change's proposal, design, tasks and specs.
-3. Relevant installed Next.js guides under `node_modules/next/dist/docs/`.
-4. `docs/contracts.md` and `docs/development.md`.
+1. El `AGENTS.md` de la raíz y las instrucciones anidadas que correspondan.
+2. `openspec/config.yaml` y la proposal, el design, las tasks y las specs del change elegido.
+3. Las guías de Next.js instaladas que correspondan, en `node_modules/next/dist/docs/`.
+4. `docs/contracts.md` y `docs/development.md`.
 
-Agus owns backend/Supabase on `feature/reports-backend`: report persistence, original Storage association, permissions, recovery, cleanup, idempotency and citizen confirmations. Reuse the common contracts and existing session clients. Do not alter existing Google login or implement municipal operations in the MVP.
+Agus es responsable del backend/Supabase en `feature/reports-backend`: guardar los reportes, asociar las fotos originales en Storage, los permisos, la recuperación, la limpieza, la idempotencia y las confirmaciones ciudadanas. Reutilizá los contratos comunes y los clientes de sesión existentes. No modifiques el login con Google existente ni implementes operaciones municipales en el MVP.
 
-Your coding-assistant login is separate from the application's Gemini Vision provider credentials. Use your own account; fixture checks need no provider key or teammate's `.env.local`. Never commit or paste passwords, service-role keys, tokens or authentication caches into instructions/PRs. Request resource access through an individual account.
+Tu login del asistente de código es independiente de las credenciales del proveedor Gemini Vision de la aplicación. Usá tu propia cuenta; las verificaciones con fixtures no necesitan una clave del proveedor ni el `.env.local` de un compañero. Nunca commitees ni pegues contraseñas, claves de service-role, tokens ni cachés de autenticación en instrucciones o PRs. Pedí acceso a los recursos con una cuenta individual.
 
-Preserve Claude/Codex workflows and report instruction conflicts rather than overwriting files. Follow planning/apply boundaries and explicit user scope. Read-only onboarding must be verified in Agus's own assistant session; this entry point is prepared, not a claim that the tool imported it or authenticated successfully.
+Conservá los flujos de Claude y Codex e informá los conflictos de instrucciones en lugar de sobrescribir archivos. Respetá los límites entre planificar y aplicar y el alcance explícito que pida el usuario. La incorporación de solo lectura tiene que verificarse en la sesión del asistente de Agus; este punto de entrada está preparado, pero no prueba que la herramienta lo haya importado ni que la autenticación haya funcionado.

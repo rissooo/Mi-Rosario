@@ -1,5 +1,5 @@
-// Compile only the contract test graph into an isolated temporary directory.
-// Uses the installed TypeScript and Node test runner; no network or Next build.
+// Compila solo el grafo de tests de contratos en un directorio temporal aislado.
+// Usa el TypeScript y el runner de tests de Node instalados; sin red ni build de Next.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -33,7 +33,7 @@ try {
     process.exitCode = result.status ?? 1;
   }
 } finally {
-  // output is an OS-generated directory scoped to this invocation, not a repo path.
+  // output es un directorio generado por el sistema para esta ejecución, no una ruta del repo.
   if (dirname(output) !== resolve(tmpdir()) || !basename(output).startsWith("mi-rosario-contracts-")) {
     throw new Error("Refusing to remove a directory outside the contract-test temporary scope.");
   }

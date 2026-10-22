@@ -1,9 +1,9 @@
-# Reports boundary — Agus
+# Límite de reportes — Agus
 
-Reserved for the separate `feature/reports-backend` change. This folder contains no persistence implementation.
+Reservado para el change aparte de `feature/reports-backend`. Esta carpeta no contiene ninguna implementación de persistencia.
 
-Future `service.ts`, `repository.ts`, `photos.ts` and `publication.ts` own report orchestration, database mapping, private original Storage, safe viewing derivatives, idempotency, retries and cleanup. Reuse existing session-scoped clients in `utils/supabase/`; do not alter Google authentication as part of this baseline.
+Los futuros `service.ts`, `repository.ts`, `photos.ts` y `publication.ts` se encargan de orquestar los reportes, el mapeo a la base de datos, el Storage privado de originales, las versiones seguras para ver, la idempotencia, los reintentos y la limpieza. Reutilizá los clientes existentes con alcance de sesión de `utils/supabase/`; no modifiques la autenticación con Google como parte de esta base.
 
-The backend owns active-category validation, the initial threshold of 3 valid distinct non-author confirmations, atomic stage updates, eligibility, private current-account confirmation lookup and authorization. RLS/column permissions and Storage policies must be tested directly in the later feature; pure validators are not security enforcement.
+El backend se encarga de validar las categorías activas, del umbral inicial de 3 confirmaciones válidas de cuentas distintas que no sean el autor, de las actualizaciones atómicas de etapa, de la elegibilidad, de la consulta privada de la confirmación de la cuenta actual y de la autorización. Los permisos de RLS y de columnas y las políticas de Storage se tienen que probar directamente en el change funcional posterior; los validadores puros no son un mecanismo de seguridad.
 
-Storage and database writes require recovery because they do not share a transaction. No original upload occurs until explicit publication. Municipal roles/actions are outside the MVP. See `../../docs/contracts.md` before authoring runtime specs or migrations.
+Las escrituras en Storage y en la base de datos necesitan recuperación porque no comparten una transacción. No se sube ningún original hasta la publicación explícita. Los roles y las acciones municipales quedan fuera del MVP. Leé `../../docs/contracts.md` antes de escribir specs de ejecución o migraciones.

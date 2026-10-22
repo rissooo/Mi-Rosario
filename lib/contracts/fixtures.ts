@@ -1,4 +1,4 @@
-/** Synthetic contract examples only. No service, database, image fetch or AI call. */
+/** Solo ejemplos sintéticos del contrato. Sin servicios, base de datos, descarga de imágenes ni llamadas a IA. */
 import { INITIAL_CATEGORIES } from "./categories";
 import type { ApiResult } from "./errors";
 import type { MyConfirmation, Report, ReportFields, ReportList } from "./reports";
@@ -6,9 +6,9 @@ import type { AnalyzeImageResponse } from "./vision";
 
 const createdAt = "2026-10-22T12:00:00.000Z";
 const updatedAt = "2026-10-22T12:01:00.000Z";
-/** Copy an example before editing it in a consumer or test. */
+/** Copiá un ejemplo antes de editarlo en un consumidor o en un test. */
 export function cloneFixture<T>(example: T): T { return structuredClone(example); }
-/** Clone each example separately, including repeated sources in one collection. */
+/** Clona cada ejemplo por separado, incluso si el mismo origen se repite en una colección. */
 function independent<T>(examples: T[]): T[] { return examples.map(cloneFixture); }
 export const REPORT_FIELDS_FIXTURES: readonly ReportFields[] = INITIAL_CATEGORIES.map((category) => ({
   title: `Ejemplo de ${category.label.toLowerCase()}`,
@@ -43,7 +43,7 @@ export const REPORT_FIXTURES: readonly Report[] = REPORT_FIELDS_FIXTURES.map((fi
   };
 });
 
-/** Listed inputs/outputs are examples, not an implementation of transitions. */
+/** Las entradas y salidas listadas son ejemplos, no una implementación de las transiciones. */
 export const VERIFICATION_FIXTURES: readonly Report[] = independent<Report>([
   { ...REPORT_FIXTURES[0], citizenVerification: { confirmationCount: 2, threshold: 3, policyStatus: "approved", corroborated: false } },
   { ...REPORT_FIXTURES[0], status: "citizen-verification", citizenVerification: { confirmationCount: 3, threshold: 3, policyStatus: "approved", corroborated: true } },
@@ -96,7 +96,7 @@ export const CONFIRMATION_CASES: readonly ContractCase<MyConfirmation>[] = indep
   { name: "missing report", status: 404, response: { error: { code: "REPORT_NOT_FOUND", message: "No se encontró el reporte." } } },
 ]);
 
-/** Error envelopes only: no provider calls, timer or credentials are used. */
+/** Solo sobres de error: no se llama al proveedor ni se usan temporizadores ni credenciales. */
 export const ANALYSIS_ERROR_CASES: readonly ContractCase<AnalyzeImageResponse>[] = independent<ContractCase<AnalyzeImageResponse>>([
   { name: "invalid Gemini output", status: 502, response: { error: { code: "ANALYSIS_FAILED", message: "No se pudo interpretar la sugerencia. Completá los datos manualmente." } } },
   { name: "Gemini unavailable", status: 503, response: { error: { code: "ANALYSIS_UNAVAILABLE", message: "El análisis no está disponible. Conservá la foto y completá los datos manualmente." } } },

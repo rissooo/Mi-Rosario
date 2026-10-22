@@ -1,13 +1,13 @@
 /**
- * Single data source for the map. Today it serves synthetic reports with the
- * GET /api/reports shape; integration replaces only listReports.
+ * Única fuente de datos del mapa. Hoy sirve reportes sintéticos con la forma de
+ * GET /api/reports; para integrar el backend solo se reemplaza listReports.
  */
 import type { ApiError } from "../../../lib/contracts/errors";
 import type { Report, ReportList, ReportListQuery } from "../../../lib/contracts/reports";
 import { validateReportListQuery } from "../../../lib/contracts/validation";
 import { SAMPLE_REPORTS } from "./sample-reports";
 
-/** True while listReports serves synthetic data; the page shows a sample-data notice. */
+/** Vale true mientras listReports sirve datos sintéticos; la página muestra un aviso de datos de ejemplo. */
 export const USING_SAMPLE_DATA = true;
 
 export class ReportSourceError extends Error {
@@ -21,7 +21,7 @@ export type Bounds = { west: number; south: number; east: number; north: number 
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-/** Map viewport bounds to the contract's "west,south,east,north" bbox, clamped to valid ranges. */
+/** Convierte los límites del área visible al bbox "oeste,sur,este,norte" del contrato, recortado a rangos válidos. */
 export function toBbox({ west, south, east, north }: Bounds): string {
   return [clamp(west, -180, 180), clamp(south, -90, 90), clamp(east, -180, 180), clamp(north, -90, 90)].join(",");
 }
@@ -39,7 +39,7 @@ function decodeCursor(cursor: string): CursorPayload {
   return JSON.parse(atob(padded + "=".repeat((4 - padded.length % 4) % 4)));
 }
 
-/** Newest first; id breaks ties so pages are stable. */
+/** Los más nuevos primero; el id desempata para que las páginas sean estables. */
 function compareReports(a: Report, b: Report): number {
   return b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
 }
@@ -75,7 +75,7 @@ export async function listReports(query: ReportListQuery): Promise<ReportList> {
   return { items, nextCursor };
 }
 
-/** Follow every page for a viewport so no report is silently dropped. */
+/** Recorre todas las páginas de un área visible para no descartar ningún reporte en silencio. */
 export async function loadAllReportsInBbox(bbox: string, limit?: number): Promise<Report[]> {
   const reports: Report[] = [];
   const seenCursors = new Set<string>();
@@ -84,7 +84,7 @@ export async function loadAllReportsInBbox(bbox: string, limit?: number): Promis
     const page = await listReports({ bbox, ...(limit ? { limit } : {}), ...(cursor ? { cursor } : {}) });
     reports.push(...page.items);
     cursor = page.nextCursor ?? undefined;
-    if (cursor && seenCursors.has(cursor)) throw new Error("Report pagination returned a repeated cursor.");
+    if (cursor && seenCursors.has(cursor)) throw new Error("La paginación de reportes devolvió un cursor repetido.");
     if (cursor) seenCursors.add(cursor);
   } while (cursor);
   return reports;

@@ -1,5 +1,5 @@
-// Compile only the map data test graph into an isolated temporary directory.
-// Same approach as scripts/check-contracts.mjs; run with `node app/components/map/check-map-data.mjs`.
+// Compila solo el grafo de tests de datos del mapa en un directorio temporal aislado.
+// Mismo enfoque que scripts/check-contracts.mjs; se corre con `node app/components/map/check-map-data.mjs`.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -28,15 +28,15 @@ try {
     process.exitCode = 1;
   } else {
     const emitted = program.emit();
-    if (emitted.emitSkipped) throw new Error("Map data tests could not be compiled.");
+    if (emitted.emitSkipped) throw new Error("No se pudieron compilar los tests de datos del mapa.");
     const result = spawnSync(process.execPath, ["--test", join(output, `${testFile}.js`)], { stdio: "inherit", cwd: root });
     if (result.error) throw result.error;
     process.exitCode = result.status ?? 1;
   }
 } finally {
-  // output is an OS-generated directory scoped to this invocation, not a repo path.
+  // output es un directorio generado por el sistema para esta ejecución, no una ruta del repo.
   if (dirname(output) !== resolve(tmpdir()) || !basename(output).startsWith("mi-rosario-map-data-")) {
-    throw new Error("Refusing to remove a directory outside the map data test temporary scope.");
+    throw new Error("No se borra un directorio que está fuera del alcance temporal de los tests de datos del mapa.");
   }
   await rm(output, { recursive: true, force: true });
 }

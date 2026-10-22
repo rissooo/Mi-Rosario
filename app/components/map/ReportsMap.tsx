@@ -10,13 +10,13 @@ import { ReportDetail } from "@/app/components/reports/ReportDetail";
 import { loadAllReportsInBbox, toBbox } from "./report-source";
 import { ROSARIO_BBOX, ROSARIO_BOUNDARY } from "./rosario-boundary";
 
-// Slightly west of the riverside so the city, not the Paraná islands, fills the view.
+// Un poco al oeste de la costa, para que la vista la ocupe la ciudad y no las islas del Paraná.
 const ROSARIO_CENTER: L.LatLngTuple = [-32.952, -60.66];
 const INITIAL_ZOOM = 13;
-// The view stays around the municipality; the mask dims what lies outside the boundary.
+// La vista se mantiene alrededor del municipio; la máscara oscurece lo que queda fuera del límite.
 const ROSARIO_BOUNDS = L.latLngBounds(ROSARIO_BBOX[0], ROSARIO_BBOX[1]);
-// Extra room (inside the dimmed area) so a marker on the city edge, like downtown by the river,
-// can still be panned out from under the detail panel.
+// Margen extra (dentro de la zona oscurecida) para que un marcador del borde de la ciudad, como el
+// centro junto al río, se pueda seguir moviendo para que salga de abajo del panel de detalle.
 const PANNING_BOUNDS = ROSARIO_BOUNDS.pad(0.35);
 const BOUNDARY_RINGS: L.LatLngTuple[][] = ROSARIO_BOUNDARY.map((ring) => [...ring]);
 const WORLD_RING: L.LatLngTuple[] = [[-90, -180], [-90, 180], [90, 180], [90, -180]];
@@ -31,7 +31,7 @@ const SEVERITY_MARKER_CLASSES: Record<Severity, string> = {
 
 const iconCache = new Map<string, L.DivIcon>();
 
-/** Color shows severity; the letter is the first letter of the category label. */
+/** El color indica la gravedad; la letra es la inicial de la etiqueta de la categoría. */
 function markerIcon(report: Report): L.DivIcon {
   const key = `${report.categoryId}:${report.severity}`;
   let icon = iconCache.get(key);
@@ -60,7 +60,7 @@ function ViewportWatcher({ onViewportChange }: { onViewportChange: (bbox: string
   return null;
 }
 
-/** The zoom-out limit depends on screen size: at most, the whole city fills the view. */
+/** El límite para alejar el zoom depende del tamaño de la pantalla: como máximo, la ciudad entera ocupa la vista. */
 function RosarioZoomLimit() {
   const map = useMap();
   useEffect(() => {
@@ -77,8 +77,8 @@ function RosarioZoomLimit() {
 const FOCUS_MARGIN_PX = 40;
 
 /**
- * Pan only when the selected marker sits under the detail panel, and only as far as needed to bring
- * it into the free area, so a visible marker never moves and edge markers stay within the bounds.
+ * Mueve el mapa solo cuando el marcador elegido queda debajo del panel de detalle, y solo lo justo para
+ * llevarlo a la zona libre: un marcador visible nunca se mueve y los del borde no salen de los límites.
  */
 function SelectedMarkerFocus({ report, panelRef }: { report: Report | null; panelRef: RefObject<HTMLElement | null> }) {
   const map = useMap();
@@ -87,7 +87,7 @@ function SelectedMarkerFocus({ report, panelRef }: { report: Report | null; pane
     if (!report || !panel) return;
     const mapRect = map.getContainer().getBoundingClientRect();
     const panelRect = panel.getBoundingClientRect();
-    // Full-width panel: bottom sheet on phones. Otherwise: side panel on the right.
+    // Panel de ancho completo: el panel inferior del celular. Si no, el panel lateral de la derecha.
     const free = panelRect.width >= mapRect.width - 1
       ? { left: 0, top: 0, right: mapRect.width, bottom: panelRect.top - mapRect.top }
       : { left: 0, top: 0, right: panelRect.left - mapRect.left, bottom: mapRect.height };
@@ -118,7 +118,7 @@ export default function ReportsMap() {
     setLoadState("loading");
     try {
       const next = await loadAllReportsInBbox(bbox);
-      // A slower, older response must not overwrite the current viewport.
+      // Una respuesta más vieja y más lenta no debe pisar el área visible actual.
       if (requestId !== latestRequest.current) return;
       setReports(next);
       setLoadState("ready");

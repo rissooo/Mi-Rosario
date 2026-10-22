@@ -2,8 +2,8 @@
 
 import dynamic from "next/dynamic";
 
-// Leaflet touches `window` on import, so the map only renders in the browser.
-// `ssr: false` is only allowed inside a Client Component, hence this wrapper.
+// Leaflet usa `window` al importarse, así que el mapa solo se renderiza en el navegador.
+// `ssr: false` solo se permite dentro de un Client Component; por eso existe este envoltorio.
 const ReportsMap = dynamic(() => import("./ReportsMap"), {
   ssr: false,
   loading: () => (

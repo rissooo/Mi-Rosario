@@ -1,6 +1,6 @@
 /**
- * Rosario municipal boundary, simplified. Source: OpenStreetMap relation 3594027
- * (© OpenStreetMap contributors, ODbL), fetched 2026-10-22. Points are [latitude, longitude].
+ * Límite municipal de Rosario, simplificado. Fuente: relación 3594027 de OpenStreetMap
+ * (© colaboradores de OpenStreetMap, ODbL), descargado el 2026-10-22. Los puntos son [latitud, longitud].
  */
 import type { LatLngTuple } from "leaflet";
 
@@ -36,5 +36,5 @@ export const ROSARIO_BOUNDARY: readonly (readonly LatLngTuple[])[] = [
   ],
 ];
 
-/** Bounding box of the boundary: [[south, west], [north, east]]. */
+/** Bounding box del límite: [[sur, oeste], [norte, este]]. */
 export const ROSARIO_BBOX: readonly [LatLngTuple, LatLngTuple] = [[-33.0348662, -60.7832623], [-32.8696461, -60.6116695]];

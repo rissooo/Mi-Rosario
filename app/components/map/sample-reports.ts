@@ -1,4 +1,4 @@
-/** Synthetic map examples spread across Rosario. Not real reports or official data. */
+/** Ejemplos sintéticos del mapa repartidos por Rosario. No son reportes reales ni datos oficiales. */
 import { cloneFixture, REPORT_FIXTURES, VERIFICATION_FIXTURES } from "../../../lib/contracts/fixtures";
 import type { CategoryId } from "../../../lib/contracts/categories";
 import type { Report, Severity } from "../../../lib/contracts/reports";
@@ -11,11 +11,11 @@ type SampleInput = {
   severity: Severity;
   latitude: number;
   longitude: number;
-  /** Approximate address for the synthetic example. */
+  /** Dirección aproximada del ejemplo sintético. */
   street: string;
   number: number | null;
   createdAt: string;
-  /** Verification base: 0 pending, 1 at threshold 3, 2 at alternate threshold 5. */
+  /** Base de verificación: por debajo del umbral, en el umbral 3 o en el umbral alternativo 5. */
   verification?: "below-threshold" | "at-threshold" | "alternate-threshold";
 };
 
@@ -68,7 +68,7 @@ if (process.env.NODE_ENV !== "production") {
   for (const report of SAMPLE_REPORTS) {
     const result = validateReport(report);
     if (!result.valid) {
-      throw new Error(`Sample report ${report.id} is invalid: ${JSON.stringify(result.error.fieldErrors)}`);
+      throw new Error(`El reporte de ejemplo ${report.id} no es válido: ${JSON.stringify(result.error.fieldErrors)}`);
     }
   }
 }

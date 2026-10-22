@@ -12,7 +12,7 @@ const dateFormat = new Intl.DateTimeFormat("es-AR", {
   timeStyle: "short",
   timeZone: "America/Argentina/Buenos_Aires",
 });
-// House numbers are read as-is ("Córdoba 6400"), without thousands separators.
+// Las alturas se leen tal cual ("Córdoba 6400"), sin separador de miles.
 const formatAddress = ({ street, number }: Address) => (number === null ? `${street} (sin altura)` : `${street} ${number}`);
 
 const isInstitutional = (stage: ReportStage) => FUTURE_INSTITUTIONAL_STAGES.some((future) => future === stage);
@@ -28,8 +28,8 @@ function ReportPhoto({ photo, title }: { photo: Photo; title: string }) {
     );
   }
   return (
-    // Signed photo URLs expire and come from the backend; next/image would need
-    // remotePatterns in the shared next.config.ts and cannot cache them anyway.
+    // Las URLs firmadas de las fotos vencen y vienen del backend; next/image necesitaría
+    // remotePatterns en el next.config.ts compartido y, de todos modos, no podría cachearlas.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={photo.url}

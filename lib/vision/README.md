@@ -1,9 +1,9 @@
-# Vision boundary — Valen
+# Límite de visión — Valen
 
-Reserved for the separate `feature/gemini-vision` change. No provider or endpoint is implemented here.
+Reservado para el change aparte de `feature/gemini-vision`. Acá no se implementa ningún proveedor ni endpoint.
 
-Consume `../contracts/vision.ts`, the shared active category catalog, error definitions and validators. Future server-only `service.ts` and `provider.ts` own validated Gemini suggestions. The future transport is `POST /api/vision/analyze`.
+Consumí `../contracts/vision.ts`, el catálogo compartido de categorías activas, las definiciones de errores y los validadores. Los futuros `service.ts` y `provider.ts`, solo del servidor, se encargan de las sugerencias validadas de Gemini. El futuro transporte es `POST /api/vision/analyze`.
 
-Analysis never publishes, writes confirmations, uploads to Storage or persists original photos. Return null when category/severity cannot be inferred; preserve manual entry. A still image does not prove a traffic light's behavior. Use “falta de luz” and never infer insecurity. No provider secret belongs in browser imports, fixtures or instructions.
+El análisis nunca publica, ni registra confirmaciones, ni sube archivos a Storage, ni guarda fotos originales. Devolvé null cuando no se pueda inferir la categoría o la gravedad; conservá la carga manual. Una foto fija no demuestra cómo funciona un semáforo. Usá "falta de luz" y nunca infieras inseguridad. Ningún secreto del proveedor puede estar en imports del navegador, fixtures ni instrucciones.
 
-See `../../docs/contracts.md` for limits, provisional decisions and feature acceptance responsibilities.
+Ver `../../docs/contracts.md` para los límites, las decisiones provisorias y las responsabilidades de aceptación de cada funcionalidad.

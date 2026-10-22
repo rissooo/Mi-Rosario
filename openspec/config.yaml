@@ -11,7 +11,8 @@ context: |
   Stack: Next.js (App Router), TypeScript, Tailwind, Supabase (Auth, Postgres,
   Storage, RLS), Leaflet + OpenStreetMap, Vercel.
   Ya hecho: repo, deploy, Supabase conectado, login con Google.
-  UI en español; código y commits en inglés.
+  Todo en español: interfaz, commits, PRs, documentación, artefactos y comentarios
+  del código. Los identificadores del código y del contrato no se traducen.
   Fuera de alcance por ahora: rellenar baches, rol institucional, mapa de calor,
   estadísticas, notificaciones.
 

@@ -1,14 +1,14 @@
-# Claude Code entry point — Fran
+# Punto de entrada de Claude Code — Fran
 
-Do not assume shared files were automatically loaded. Before making changes, explicitly read:
+No supongas que los archivos compartidos se cargaron automáticamente. Antes de hacer cambios, leé explícitamente:
 
-1. Root `AGENTS.md` and any applicable nested instructions.
-2. `openspec/config.yaml` and the selected change's proposal, design, tasks and specs.
-3. Relevant installed Next.js guides under `node_modules/next/dist/docs/`.
-4. `docs/contracts.md` and `docs/development.md`.
+1. El `AGENTS.md` de la raíz y las instrucciones anidadas que correspondan.
+2. `openspec/config.yaml` y la proposal, el design, las tasks y las specs del change elegido.
+3. Las guías de Next.js instaladas que correspondan, en `node_modules/next/dist/docs/`.
+4. `docs/contracts.md` y `docs/development.md`.
 
-Fran owns frontend/interface/maps on `feature/interface-map`. Consume shared DTOs, validators and synthetic fixtures rather than redefining contracts. Provider/consumer review is required for boundary changes. Do not interpret fixtures as a working backend or official municipal data.
+Fran es responsable del frontend, la interfaz y los mapas en `feature/interface-map`. Consumí los DTO compartidos, los validadores y los fixtures sintéticos en lugar de redefinir los contratos. Los cambios en los límites necesitan la revisión de quienes los proveen y de quienes los consumen. No tomes los fixtures como un backend que funciona ni como datos municipales oficiales.
 
-Preserve `.claude/commands/opsx/`, `.claude/skills/`, `.agents/skills/`, existing instructions and authentication. Report conflicting instructions; do not replace them. Follow planning/apply boundaries and user authorization. This baseline does not authorize screens, maps, endpoints, merges or deployment.
+Conservá `.claude/commands/opsx/`, `.claude/skills/`, `.agents/skills/`, las instrucciones existentes y la autenticación. Informá las instrucciones en conflicto; no las reemplaces. Respetá los límites entre planificar y aplicar y la autorización del usuario. Esta base no autoriza pantallas, mapas, endpoints, merges ni deploys.
 
-Read-only onboarding check: identify the shared rules, selected change, module owner and applicable Next.js guide before work. Evidence from Fran's actual Claude session is still required; this file's existence does not prove it was read.
+Verificación de incorporación de solo lectura: antes de trabajar, identificá las reglas compartidas, el change elegido, el responsable del módulo y la guía de Next.js que corresponde. Hace falta evidencia de una sesión real de Claude de Fran; que este archivo exista no prueba que se haya leído.

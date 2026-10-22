@@ -11,48 +11,65 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- BEGIN:mi-rosario-team-rules -->
 
-## Mi Rosario shared architecture
+## Arquitectura compartida de Mi Rosario
 
-Before work, explicitly read this file, any applicable nested instructions,
-`openspec/config.yaml`, the selected change's proposal/design/tasks/specs, and
-`docs/contracts.md` / `docs/development.md`. Do not assume another assistant
-already loaded them. Preserve the generated Next.js block above and existing
-Codex/Claude workflows; report conflicting instructions instead of replacing them.
+Antes de trabajar, leé explícitamente este archivo, las instrucciones anidadas que
+correspondan, `openspec/config.yaml`, la proposal, el design, las tasks y las specs
+del change elegido, y `docs/contracts.md` / `docs/development.md`. No supongas que
+otro asistente ya los cargó. Conservá el bloque generado de Next.js de arriba (lo
+regenera `next dev` y queda en inglés) y los flujos existentes de Codex y Claude;
+si hay instrucciones en conflicto, informalo en lugar de reemplazarlas.
 
-- Valen: AI on `feature/gemini-vision`. Analysis suggests editable fields only;
-  it never publishes, writes confirmations or persists photographs.
-- Agus: backend/Supabase on `feature/reports-backend`. Own report persistence,
-  original Storage, safe presentation, permissions, idempotency, recovery and cleanup.
-- Fran: interface/maps on `feature/interface-map`. Consume public contracts and
-  APIs; do not import provider/repository/server clients or write product tables directly.
-- Shared DTOs, pure validators and synthetic fixtures live in `lib/contracts/`.
-  Changes to those boundaries need review from affected providers and consumers.
-- Initial active categories are exactly `pothole`, `missing-light`,
-  `damaged-sidewalk` and `faulty-traffic-light`. Keep Spanish labels and legacy IDs.
-  Use falta de luz; never infer insecurity. A still image may not prove traffic-light behavior.
-- Severity is `low | medium | high` (baja/media/alta). Gemini may return null;
-  the citizen reviews/corrects all fields and explicitly publishes with an original photo.
-- Initial citizen threshold is 3 distinct authenticated non-author confirmations;
-  backend returns effective threshold/state and owns the atomic transition.
-  Counts and severity never imply municipal verification.
-- Four stages are pending, citizen-verification, municipal-verification and resolved.
-  Real institutional operations remain outside the MVP. Label isolated simulations
-  “Simulación - sin aval municipal”; never claim official endorsement.
-- Keep unapproved title limits and photo-retention decisions visibly provisional.
-  Do not expand the incident catalog or institutional scope without a reviewed change.
-- This baseline implements contracts/instructions, not endpoints, Gemini calls,
-  migrations, screens or maps. Those require separate functional OpenSpec changes.
-  Mark tasks complete only with their specified evidence, including teammate reviews.
-- Use `openspec.cmd` in PowerShell; locate with `npm.cmd config get prefix` if needed.
-  Propose/review before apply; never infer commit, push, merge or archive authorization.
-- Use English code/commit names and Spanish UI. Link PRs to OpenSpec, include
-  dependencies and checks, and assign one editor per PR for shared files.
-- Use individual assistant accounts. Never share or commit private environment files,
-  tokens, service-role/provider secrets, authentication caches or private histories.
+- Valen: IA en `feature/gemini-vision`. El análisis solo sugiere campos editables;
+  nunca publica, ni registra confirmaciones, ni guarda fotos.
+- Agus: backend/Supabase en `feature/reports-backend`. Es responsable de guardar
+  los reportes, el Storage de originales, la presentación segura, los permisos, la
+  idempotencia, la recuperación y la limpieza.
+- Fran: interfaz/mapas en `feature/interface-map`. Consume los contratos y las APIs
+  públicas; no importa clientes de proveedores, repositorios ni del servidor, ni
+  escribe directamente en las tablas del producto.
+- Los DTO compartidos, los validadores puros y los fixtures sintéticos están en
+  `lib/contracts/`. Los cambios en esos límites necesitan la revisión de quienes
+  los proveen y de quienes los consumen.
+- Las categorías activas iniciales son exactamente `pothole`, `missing-light`,
+  `damaged-sidewalk` y `faulty-traffic-light`. Conservá las etiquetas en español y
+  los IDs existentes. Usá "falta de luz"; nunca infieras inseguridad. Una foto fija
+  puede no demostrar cómo funciona un semáforo.
+- La gravedad es `low | medium | high` (baja/media/alta). Gemini puede devolver
+  null; el vecino revisa y corrige todos los campos y publica explícitamente con
+  una foto original.
+- El umbral ciudadano inicial es de 3 confirmaciones de cuentas autenticadas
+  distintas que no sean el autor; el backend devuelve el umbral y el estado
+  efectivos y es responsable de la transición atómica. Ni las confirmaciones ni la
+  gravedad implican una verificación municipal.
+- Las cuatro etapas son pending, citizen-verification, municipal-verification y
+  resolved. Las operaciones institucionales reales quedan fuera del MVP. Las
+  simulaciones aisladas llevan la etiqueta "Simulación - sin aval municipal"; nunca
+  se afirma un aval oficial.
+- Los límites del título y las decisiones de retención de fotos que no están
+  aprobados se muestran claramente como provisorios. No se amplía el catálogo de
+  incidentes ni el alcance institucional sin un change revisado.
+- Esta base implementa contratos e instrucciones, no endpoints, llamadas a Gemini,
+  migraciones, pantallas ni mapas. Eso requiere changes funcionales de OpenSpec
+  aparte. Marcá una tarea como completa solo con la evidencia que pide, incluidas
+  las revisiones de los compañeros.
+- Usá `openspec.cmd` en PowerShell; si no lo encontrás, ubicalo con
+  `npm.cmd config get prefix`. Primero proponer y revisar, después aplicar; nunca
+  supongas que hay autorización para commit, push, merge o archive.
+- Idioma: todo en español (interfaz, mensajes de commit, PRs, documentación,
+  artefactos de OpenSpec y comentarios del código). Los identificadores del código
+  y del contrato (variables, funciones, tipos, campos e IDs como `pothole`) se
+  mantienen como están para no romper el contrato compartido.
+- Enlazá los PRs con OpenSpec, incluí las dependencias y las verificaciones, y
+  asigná un solo editor por PR para los archivos compartidos.
+- Cada uno usa su propia cuenta de asistente. Nunca compartas ni commitees archivos
+  de entorno privados, tokens, secretos de service-role o de proveedores, cachés de
+  autenticación ni historiales privados.
 
-Local checks: `npm.cmd run check:contracts`, `npm.cmd run lint`,
+Verificaciones locales: `npm.cmd run check:contracts`, `npm.cmd run lint`,
 `npm.cmd exec -- tsc --noEmit --incremental false`,
 `openspec.cmd validate establish-team-architecture --strict`, `git diff --check`.
-Contract fixtures are not evidence of runtime security, DB atomicity or official verification.
+Los fixtures de contrato no son evidencia de seguridad en ejecución, de atomicidad
+en la base de datos ni de verificación oficial.
 
 <!-- END:mi-rosario-team-rules -->

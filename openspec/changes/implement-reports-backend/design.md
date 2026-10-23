@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el comportamiento exigido. La rama contiene handlers, servicios y cinco migraciones aún no aplicadas en ningún entorno, según confirmó Agus. No hay Supabase local configurado todavía. Los contratos compartidos no incluyen `location.address` en esta rama; el PR #3 de Fran está abierto y sin mergear.
+Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el comportamiento exigido. La rama contiene handlers, servicios y cinco migraciones aún no aplicadas en ningún entorno, según confirmó Agus. No hay Supabase local configurado. `Location.address` ya forma parte del contrato que llegó a `main` con el PR #3.
 
 ## Objetivos / Fuera de alcance
 
@@ -22,9 +22,13 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 
 ### 2. Fotos originales y públicas
 
+- **D1 — pendiente de confirmar con Fran:** “original” es exactamente el archivo que recibe el servidor, incluso si el navegador ya lo comprimió o le quitó metadatos. El backend no confía en el saneamiento del navegador: revalida el tipo, conserva esa entrada en `reports-originals` privado y genera una copia saneada para publicar.
 - `reports-originals` es privado. La ruta de la original puede incluir el usuario, pero nunca sale en una vista o DTO. La política de inserción permite el objeto solo si la ruta corresponde a una clave `in_progress` del usuario; la política de borrado solo permite retirar una original que aún no pertenece a un reporte publicado. Ambas comprobaciones usan helpers `SECURITY DEFINER` con `search_path` vacío.
+- Para reintentar sobre las mismas rutas con `upsert`, Storage también requiere permisos `SELECT` y `UPDATE`; quedan limitados por el mismo helper al claim propio `in_progress`.
 - `reports-public` es público, tiene límites de tamaño y MIME y recibe la copia sin metadatos con ruta `{report_id}.{ext}`, sin identificador de usuario. La política de inserción exige una clave propia en estado `in_progress`. La URL de lectura se arma con `getPublicUrl`; no se generan URLs firmadas para visitantes anónimos.
+- **D2 — pendiente de confirmar con Fran:** `Photo.url` apunta a la copia pública. `mimeType` y `byteSize` describen esa copia, se almacenan en columnas propias y se proyectan en la vista pública. No se inventa un vencimiento para una URL pública que no vence.
 - El saneamiento se hace en TypeScript puro, sin decodificar la imagen: quitar segmentos APP en JPEG, chunks `eXIf` y de texto en PNG y chunk EXIF en WebP. Si la estructura no se puede analizar con seguridad, se rechaza como error de validación. Se valida el contenido y MIME contra `IMAGE_MIME_TYPES`.
+- **Bloqueo de contrato:** `Photo.expiresAt` es obligatorio y debe ser una fecha UTC en `lib/contracts/reports.ts` y `docs/contracts.md`, mientras que `getPublicUrl` no tiene vencimiento. Hasta que Fran acuerde una representación compartida para URLs sin vencimiento, el DTO público no puede declararse compatible; este cambio no inventa una fecha ni modifica los archivos compartidos.
 - La elección de bucket público para la copia saneada es provisoria y debe confirmarse con Fran. La original nunca se hace pública. La política/retención de originales sigue siendo provisoria según el contrato.
 - No se implementa limpieza SQL de huérfanas. Borrar objetos exige Storage API con credencial de servidor; queda pendiente definir una limpieza segura que no agregue `service_role` al flujo normal.
 
@@ -111,6 +115,7 @@ Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` e
 ### Fran (también llamado Francisco) — interfaz y mapas
 
 - Confirmar que `reports-public` con copias saneadas y URL pública satisface el consumo de lista/detalle y el tratamiento de caché.
+- Acordar cómo representa el contrato `Photo.expiresAt` una URL pública sin vencimiento (`null` o quitar el campo). Hasta esa decisión, el DTO de lista/detalle no se marca como terminado.
 - Confirmar el límite de tamaño del multipart desde cliente considerando el límite del hosting, y si el cliente comprimirá antes de enviar.
 - Revisar e integrar PR #3 antes que el backend; luego cambiar solamente el adaptador de dirección.
 - Definir con qué mecanismo autorizado se limpiarán huérfanas mediante Storage API; no se implementa en SQL.

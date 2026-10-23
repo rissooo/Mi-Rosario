@@ -25,9 +25,8 @@ import {
   ReportRpcError,
 } from "./idempotency";
 import {
-  compensateRemovePhoto,
-  createBatchSignedUrls,
-  DEFAULT_SIGNED_URL_EXPIRES_IN_SECONDS,
+  compensateRemovePhotos,
+  getPublicPhotoUrl,
   ReportPhotoError,
   uploadReportPhoto,
 } from "./photos";
@@ -72,21 +71,24 @@ type DbReportRow = {
   created_at: string;
   updated_at: string;
   corroborated_at?: string | null;
-  resolved_at?: string | null;
-  storage_path: string;
-  mime_type: string;
-  byte_size: number;
+  photo_public_path: string;
+  photo_public_mime_type: string;
+  photo_public_byte_size: number;
   confirmation_count?: number;
-  threshold?: number;
+  confirmation_threshold?: number;
+};
+
+/** Forma pública pendiente de que el contrato admita URLs que no vencen. */
+type ReportDtoPendingPhotoExpiry = Omit<Report, "photo"> & {
+  photo: Omit<Photo, "expiresAt">;
 };
 
 export function mapRowToReport(
   row: DbReportRow,
-  signedUrl: string,
-  expiresAt: string,
-): Report {
+  publicUrl: string,
+): ReportDtoPendingPhotoExpiry {
   const count = row.confirmation_count ?? 0;
-  const threshold = row.threshold ?? 3;
+  const threshold = row.confirmation_threshold ?? 3;
 
   const location: Location = {
     latitude: row.latitude,
@@ -97,12 +99,12 @@ export function mapRowToReport(
     },
   };
 
-  const photo: Photo = {
+  const photo: Omit<Photo, "expiresAt"> = {
     id: row.id as UUID,
-    url: signedUrl,
-    expiresAt,
-    mimeType: row.mime_type as Photo["mimeType"],
-    byteSize: row.byte_size,
+    url: publicUrl,
+    // TODO Fran: el contrato exige expiresAt aunque getPublicUrl no venza; no inventar una fecha.
+    mimeType: row.photo_public_mime_type as Photo["mimeType"],
+    byteSize: row.photo_public_byte_size,
   };
 
   return {
@@ -126,13 +128,13 @@ export function mapRowToReport(
       availability: "unavailable",
       verifiedAt: null,
     },
-    resolvedAt: row.resolved_at ?? null,
+    resolvedAt: null,
   };
 }
 
 export type PublishServiceResult = {
   httpStatus: number;
-  result: ApiResult<Report>;
+  result: ApiResult<ReportDtoPendingPhotoExpiry>;
   retryAfter?: number;
 };
 
@@ -171,11 +173,6 @@ function failurePublicationError(error: unknown): PublishServiceResult {
     "INTERNAL_ERROR",
     "No se pudo confirmar la publicación. Reintentá con la misma clave.",
   );
-}
-
-function getPublicPhotoPath(reportId: string, mimeType: Photo["mimeType"]): string {
-  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
-  return `${reportId}.${extension}`;
 }
 
 /**
@@ -266,21 +263,17 @@ export async function publishReportService({
   }
 
   const reportId = slot.reportId;
-  let storagePath: string | null = null;
-  let photoUploaded = false;
+  let photoUpload: Awaited<ReturnType<typeof uploadReportPhoto>> | null = null;
   let committed = false;
 
   try {
-    const uploadRes = await uploadReportPhoto({
+    photoUpload = await uploadReportPhoto({
       supabase,
       userId,
       reportId,
       fileBytes: imageBytes,
       declaredMimeType: image.type,
     });
-    storagePath = uploadRes.storagePath;
-    photoUploaded = true;
-
     const published = await publishReportSlot(supabase, {
       key: parsedHeaders.value["Idempotency-Key"],
       payloadHash,
@@ -292,10 +285,10 @@ export async function publishReportService({
       longitude: fields.location.longitude,
       street: fields.location.address.street,
       streetNumber: fields.location.address.number,
-      storagePath: uploadRes.storagePath,
-      photoPublicPath: getPublicPhotoPath(reportId, uploadRes.mimeType),
-      mimeType: uploadRes.mimeType,
-      byteSize: uploadRes.byteSize,
+      storagePath: photoUpload.storagePath,
+      photoPublicPath: photoUpload.photoPublicPath,
+      mimeType: photoUpload.mimeType,
+      byteSize: photoUpload.byteSize,
     });
 
     if (published && typeof published === "object" && "success" in published && published.success === false) {
@@ -322,7 +315,9 @@ export async function publishReportService({
 
     const definitive = (err instanceof ReportRpcError || err instanceof ReportPhotoError) && err.definitive;
     if (definitive) {
-      if (photoUploaded && storagePath) await compensateRemovePhoto(supabase, storagePath);
+      const uploadedObjects = photoUpload?.uploadedObjects ??
+        (err instanceof ReportPhotoError ? err.uploadedObjects : []);
+      if (uploadedObjects.length > 0) await compensateRemovePhotos(supabase, uploadedObjects);
       try {
         await failIdempotencySlot(supabase, parsedHeaders.value["Idempotency-Key"], reportId, payloadHash);
       } catch {
@@ -339,7 +334,7 @@ export async function publishReportService({
 export async function getReportDetailService(
   supabase: SupabaseClient,
   reportId: string,
-): Promise<{ httpStatus: number; result: ApiResult<Report> }> {
+): Promise<{ httpStatus: number; result: ApiResult<ReportDtoPendingPhotoExpiry> }> {
   const { data: row, error } = await supabase
     .from("public_reports")
     .select("*")
@@ -358,12 +353,8 @@ export async function getReportDetailService(
     };
   }
 
-  const urls = await createBatchSignedUrls(supabase, [row.storage_path]);
-  const signed = urls.get(row.storage_path);
-  const expiresAt = signed?.expiresAt ?? new Date(Date.now() + 3600 * 1000).toISOString();
-  const photoUrl = signed?.url ?? "";
-
-  const reportDto = mapRowToReport(row, photoUrl, expiresAt);
+  const photoUrl = getPublicPhotoUrl(supabase, row.photo_public_path);
+  const reportDto = mapRowToReport(row, photoUrl);
 
   return {
     httpStatus: 200,
@@ -372,12 +363,12 @@ export async function getReportDetailService(
 }
 
 /**
- * Queries reports list with filtering, bbox, keyset pagination, and batch signed URLs.
+ * Consulta el catálogo con filtros, cursor por clave y URLs públicas de copias saneadas.
  */
 export async function listReportsService(
   supabase: SupabaseClient,
   query: ReportListQuery,
-): Promise<{ httpStatus: number; result: ApiResult<ReportList> }> {
+): Promise<{ httpStatus: number; result: ApiResult<Omit<ReportList, "items"> & { items: ReportDtoPendingPhotoExpiry[] }> }> {
   const parsed = validateReportListQuery(query);
   if (!parsed.valid) {
     return {
@@ -439,15 +430,10 @@ export async function listReportsService(
   const hasMore = rows.length > limit;
   const itemsRows = hasMore ? rows.slice(0, limit) : rows;
 
-  const storagePaths = itemsRows.map((r) => r.storage_path).filter(Boolean);
-  const signedUrls = await createBatchSignedUrls(supabase, storagePaths);
-
-  const expiresAt = new Date(Date.now() + DEFAULT_SIGNED_URL_EXPIRES_IN_SECONDS * 1000).toISOString();
-
-  const items = itemsRows.map((row) => {
-    const signed = signedUrls.get(row.storage_path);
-    return mapRowToReport(row, signed?.url ?? "", signed?.expiresAt ?? expiresAt);
-  });
+  const items = itemsRows.map((row) => mapRowToReport(
+    row,
+    getPublicPhotoUrl(supabase, row.photo_public_path),
+  ));
 
   const filters: CursorFilters = {
     ...(categoryId ? { categoryId } : {}),

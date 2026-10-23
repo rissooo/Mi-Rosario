@@ -14,6 +14,12 @@ import {
 
 const reservedReportId = "10000000-0000-4000-8000-000000000001";
 const idempotencyKey = "20000000-0000-4000-8000-000000000002";
+const JPEG_WITH_EXIF = new Uint8Array([
+  0xff, 0xd8,
+  0xff, 0xe1, 0x00, 0x08, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
+  0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+  0x11, 0x22, 0xff, 0xd9,
+]);
 const publishFields: ReportFields = {
   title: "Bache profundo en la calzada",
   description: "Bache grande en el carril derecho.",
@@ -30,7 +36,7 @@ const publishFields: ReportFields = {
 function createPublishForm(report: unknown = publishFields): FormData {
   const form = new FormData();
   form.set("report", typeof report === "string" ? report : JSON.stringify(report));
-  form.set("image", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])], "foto.jpg", {
+  form.set("image", new File([JPEG_WITH_EXIF], "foto.jpg", {
     type: "image/jpeg",
   }));
   return form;
@@ -39,6 +45,7 @@ function createPublishForm(report: unknown = publishFields): FormData {
 function createPublishSupabase(options: {
   claimResult?: unknown;
   publishError?: { code?: string; message: string };
+  publishThrow?: unknown;
   detailError?: boolean;
 } = {}) {
   const rpcCalls: Array<{ name: string; params: unknown }> = [];
@@ -58,12 +65,11 @@ function createPublishSupabase(options: {
     street_number: publishFields.location.address.number,
     created_at: "2026-10-22T10:00:00.000Z",
     updated_at: "2026-10-22T10:00:00.000Z",
-    resolved_at: null,
-    storage_path: `user-1/${reservedReportId}/original.jpg`,
-    mime_type: "image/jpeg",
-    byte_size: 12,
+    photo_public_path: `${reservedReportId}.jpg`,
+    photo_public_mime_type: "image/jpeg",
+    photo_public_byte_size: 14,
     confirmation_count: 0,
-    threshold: 3,
+    confirmation_threshold: 3,
   };
 
   const supabase = {
@@ -76,6 +82,7 @@ function createPublishSupabase(options: {
         };
       }
       if (name === "publish_report") {
+        if (options.publishThrow) throw options.publishThrow;
         if (options.publishError) return { data: null, error: options.publishError };
         return { data: { success: true, action: "CREATED", reportId: reservedReportId }, error: null };
       }
@@ -104,9 +111,8 @@ function createPublishSupabase(options: {
           removedPaths.push(...paths);
           return { data: paths, error: null };
         },
-        createSignedUrls: async (paths: string[]) => ({
-          data: paths.map((path) => ({ path, signedUrl: "https://example.invalid/photo.jpg" })),
-          error: null,
+        getPublicUrl: (path: string) => ({
+          data: { publicUrl: `https://project.example/storage/v1/object/public/reports-public/${path}` },
         }),
       }),
     },
@@ -137,7 +143,7 @@ test("decodeCursor returns null on corrupted or invalid string", () => {
   assert.equal(decodeCursor(Buffer.from(JSON.stringify({ version: 2 })).toString("base64")), null);
 });
 
-test("mapRowToReport creates contract-compliant Report DTO", () => {
+test("mapRowToReport usa metadatos de la copia y deja visible el bloqueo de expiresAt", () => {
   const row = {
     id: "10000000-0000-4000-8000-000000000001",
     title: "Bache profundo en la calle",
@@ -152,27 +158,28 @@ test("mapRowToReport creates contract-compliant Report DTO", () => {
     created_at: "2026-10-22T10:00:00.000Z",
     updated_at: "2026-10-22T10:00:00.000Z",
     corroborated_at: null,
-    resolved_at: null,
-    storage_path: "user-1/10000000-0000-4000-8000-000000000001/original.jpg",
-    mime_type: "image/jpeg",
-    byte_size: 2048,
+    photo_public_path: "10000000-0000-4000-8000-000000000001.jpg",
+    photo_public_mime_type: "image/jpeg",
+    photo_public_byte_size: 1912,
     confirmation_count: 2,
-    threshold: 3,
+    confirmation_threshold: 3,
   };
 
-  const report = mapRowToReport(
-    row,
-    "https://example.invalid/signed/photo.jpg",
-    "2026-10-22T11:00:00.000Z",
-  );
+  const report = mapRowToReport(row, "https://project.example/storage/v1/object/public/reports-public/10000000-0000-4000-8000-000000000001.jpg");
 
   const validation = validateReport(report);
-  assert.equal(validation.valid, true);
+  assert.equal(validation.valid, false);
+  assert.ok(validation.error?.fieldErrors?.["photo.expiresAt"]);
+  assert.equal(Object.hasOwn(report.photo, "expiresAt"), false);
+  assert.equal(report.photo.byteSize, 1912);
   assert.equal(report.id, row.id);
   assert.equal(report.citizenVerification.confirmationCount, 2);
   assert.equal(report.citizenVerification.threshold, 3);
   assert.equal(report.citizenVerification.corroborated, false);
   assert.deepEqual(report.location.address, { street: "Córdoba", number: 1250 });
+  assert.equal(report.photo.url, "https://project.example/storage/v1/object/public/reports-public/10000000-0000-4000-8000-000000000001.jpg");
+  assert.equal(report.photo.byteSize, 1912);
+  assert.equal(Object.hasOwn(report.photo, "expiresAt"), false);
 });
 
 test("getReportDetailService devuelve siempre la dirección del reporte", async () => {
@@ -190,12 +197,11 @@ test("getReportDetailService devuelve siempre la dirección del reporte", async 
     created_at: "2026-10-22T10:00:00.000Z",
     updated_at: "2026-10-22T10:00:00.000Z",
     corroborated_at: null,
-    resolved_at: null,
-    storage_path: "user-1/10000000-0000-4000-8000-000000000001/original.jpg",
-    mime_type: "image/jpeg",
-    byte_size: 2048,
+    photo_public_path: "10000000-0000-4000-8000-000000000001.jpg",
+    photo_public_mime_type: "image/jpeg",
+    photo_public_byte_size: 1912,
     confirmation_count: 2,
-    threshold: 3,
+    confirmation_threshold: 3,
   };
   const mockSupabase = {
     from: () => ({
@@ -205,10 +211,7 @@ test("getReportDetailService devuelve siempre la dirección del reporte", async 
     }),
     storage: {
       from: () => ({
-        createSignedUrls: async (paths: string[]) => ({
-          data: paths.map((path) => ({ path, signedUrl: "https://example.invalid/photo.jpg" })),
-          error: null,
-        }),
+        getPublicUrl: (path: string) => ({ data: { publicUrl: `https://public.example/${path}` } }),
       }),
     },
   } as unknown as SupabaseClient;
@@ -218,6 +221,9 @@ test("getReportDetailService devuelve siempre la dirección del reporte", async 
   assert.ok(response.result.data);
   if (response.result.data) {
     assert.deepEqual(response.result.data.location.address, { street: "Córdoba", number: 1250 });
+    assert.equal(response.result.data.photo.url, "https://public.example/10000000-0000-4000-8000-000000000001.jpg");
+    assert.equal(response.result.data.photo.byteSize, 1912);
+    assert.equal(Object.hasOwn(response.result.data.photo, "expiresAt"), false);
   }
 });
 
@@ -236,12 +242,11 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
     created_at: "2026-10-22T10:00:00.000Z",
     updated_at: "2026-10-22T10:00:00.000Z",
     corroborated_at: null,
-    resolved_at: null,
-    storage_path: "user-1/10000000-0000-4000-8000-000000000001/original.jpg",
-    mime_type: "image/jpeg",
-    byte_size: 2048,
+    photo_public_path: "10000000-0000-4000-8000-000000000001.jpg",
+    photo_public_mime_type: "image/jpeg",
+    photo_public_byte_size: 1912,
     confirmation_count: 2,
-    threshold: 3,
+    confirmation_threshold: 3,
   };
   const query = {
     select: () => query,
@@ -252,10 +257,7 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
     from: () => query,
     storage: {
       from: () => ({
-        createSignedUrls: async (paths: string[]) => ({
-          data: paths.map((path) => ({ path, signedUrl: "https://example.invalid/photo.jpg" })),
-          error: null,
-        }),
+        getPublicUrl: (path: string) => ({ data: { publicUrl: `https://public.example/${path}` } }),
       }),
     },
   } as unknown as SupabaseClient;
@@ -265,6 +267,9 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
   assert.ok(response.result.data);
   if (response.result.data) {
     assert.deepEqual(response.result.data.items[0].location.address, { street: "Córdoba", number: 1250 });
+    assert.equal(response.result.data.items[0].photo.url, "https://public.example/10000000-0000-4000-8000-000000000001.jpg");
+    assert.equal(response.result.data.items[0].photo.byteSize, 1912);
+    assert.equal(Object.hasOwn(response.result.data.items[0].photo, "expiresAt"), false);
   }
 });
 
@@ -281,7 +286,7 @@ test("publishReportService parsea report como JSON y publica con el report_id re
   assert.ok(response.result.data);
   assert.equal(response.result.data?.id, reservedReportId);
   assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key", "publish_report"]);
-  assert.deepEqual(mock.uploadedPaths, [`user-1/${reservedReportId}/original.jpg`]);
+  assert.deepEqual(mock.uploadedPaths, [`user-1/${reservedReportId}/original.jpg`, `${reservedReportId}.jpg`]);
   assert.deepEqual(mock.queriedTables, ["public_reports"]);
 
   const claimParams = mock.rpcCalls[0].params as Record<string, unknown>;
@@ -352,7 +357,7 @@ test("un rechazo definitivo antes del commit compensa la foto y marca la clave f
   });
 
   assert.equal(response.httpStatus, 500);
-  assert.deepEqual(mock.removedPaths, [`user-1/${reservedReportId}/original.jpg`]);
+  assert.deepEqual(mock.removedPaths, [`user-1/${reservedReportId}/original.jpg`, `${reservedReportId}.jpg`]);
   assert.deepEqual(mock.rpcCalls.map((call) => call.name), [
     "claim_idempotency_key",
     "publish_report",
@@ -375,7 +380,22 @@ test("un timeout de publish_report conserva la foto y no marca failed", async ()
   });
 
   assert.equal(response.httpStatus, 500);
-  assert.deepEqual(mock.uploadedPaths, [`user-1/${reservedReportId}/original.jpg`]);
+  assert.deepEqual(mock.uploadedPaths, [`user-1/${reservedReportId}/original.jpg`, `${reservedReportId}.jpg`]);
+  assert.deepEqual(mock.removedPaths, []);
+  assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key", "publish_report"]);
+});
+
+test("un error desconocido de publish_report conserva ambas fotos y no marca failed", async () => {
+  const mock = createPublishSupabase({ publishThrow: new Error("resultado no reconocido") });
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 500);
+  assert.deepEqual(mock.uploadedPaths, [`user-1/${reservedReportId}/original.jpg`, `${reservedReportId}.jpg`]);
   assert.deepEqual(mock.removedPaths, []);
   assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key", "publish_report"]);
 });

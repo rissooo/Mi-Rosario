@@ -178,8 +178,8 @@ test("publishReportSlot y failIdempotencySlot coinciden con las firmas de las mi
       p_street_number: 1250,
       p_storage_path: "user-uuid/report-uuid/original.jpg",
       p_photo_public_path: "report-uuid.jpg",
-      p_mime_type: "image/jpeg",
-      p_byte_size: 2048,
+      p_photo_public_mime_type: "image/jpeg",
+      p_photo_public_byte_size: 2048,
     },
   });
   assert.deepEqual(calls[1], {

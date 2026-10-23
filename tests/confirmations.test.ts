@@ -115,7 +115,7 @@ test("getMyConfirmation returns eligible status for non-author citizen", async (
     auth: {
       getUser: async () => ({ data: { user: { id: "user-non-author" } } }),
     },
-    from: (table: string) => ({
+    from: () => ({
       select: (fields: string, opts?: { count?: string; head?: boolean }) => {
         if (opts?.count) {
           return {
@@ -123,7 +123,7 @@ test("getMyConfirmation returns eligible status for non-author citizen", async (
           };
         }
         return {
-          eq: (field: string) => ({
+          eq: () => ({
             eq: () => ({ maybeSingle: async () => ({ data: null }) }),
             single: async () => ({
               data: {

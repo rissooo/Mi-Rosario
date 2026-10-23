@@ -19,6 +19,8 @@ SELECT
   r.updated_at,
   r.corroborated_at,
   r.photo_public_path,
+  r.photo_public_mime_type,
+  r.photo_public_byte_size,
   r.confirmation_count,
   r.confirmation_threshold
 FROM public.reports AS r

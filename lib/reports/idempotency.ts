@@ -137,8 +137,8 @@ export async function publishReportSlot(
     p_street_number: args.streetNumber,
     p_storage_path: args.storagePath,
     p_photo_public_path: args.photoPublicPath,
-    p_mime_type: args.mimeType,
-    p_byte_size: args.byteSize,
+    p_photo_public_mime_type: args.mimeType,
+    p_photo_public_byte_size: args.byteSize,
   });
 
   if (error) {

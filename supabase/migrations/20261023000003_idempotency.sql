@@ -143,8 +143,8 @@ CREATE OR REPLACE FUNCTION public.publish_report(
   p_street_number INTEGER,
   p_storage_path TEXT,
   p_photo_public_path TEXT,
-  p_mime_type TEXT,
-  p_byte_size INTEGER
+  p_photo_public_mime_type TEXT,
+  p_photo_public_byte_size INTEGER
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -234,8 +234,8 @@ BEGIN
     street_number,
     storage_path,
     photo_public_path,
-    mime_type,
-    byte_size
+    photo_public_mime_type,
+    photo_public_byte_size
   )
   VALUES (
     v_report_id,
@@ -251,8 +251,8 @@ BEGIN
     p_street_number,
     p_storage_path,
     p_photo_public_path,
-    p_mime_type,
-    p_byte_size
+    p_photo_public_mime_type,
+    p_photo_public_byte_size
   );
 
   UPDATE public.idempotency_keys
@@ -429,10 +429,32 @@ $$;
 DROP POLICY IF EXISTS "Allow authenticated user upload to own folder" ON storage.objects;
 DROP POLICY IF EXISTS "Allow user delete own pending upload" ON storage.objects;
 DROP POLICY IF EXISTS "Allow authenticated upload for active report claim" ON storage.objects;
+DROP POLICY IF EXISTS "Allow read for active report claim upsert" ON storage.objects;
+DROP POLICY IF EXISTS "Allow update for active report claim upsert" ON storage.objects;
 DROP POLICY IF EXISTS "Allow delete of unpublished report photos" ON storage.objects;
 
 CREATE POLICY "Allow authenticated upload for active report claim"
 ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (
+  bucket_id IN ('reports-originals', 'reports-public')
+  AND (SELECT public.can_upload_report_object(bucket_id, name))
+);
+
+-- Storage necesita SELECT y UPDATE, además de INSERT, para reemplazar con upsert.
+-- Las políticas se limitan al mismo usuario y a su claim in_progress.
+CREATE POLICY "Allow read for active report claim upsert"
+ON storage.objects FOR SELECT TO authenticated
+USING (
+  bucket_id IN ('reports-originals', 'reports-public')
+  AND (SELECT public.can_upload_report_object(bucket_id, name))
+);
+
+CREATE POLICY "Allow update for active report claim upsert"
+ON storage.objects FOR UPDATE TO authenticated
+USING (
+  bucket_id IN ('reports-originals', 'reports-public')
+  AND (SELECT public.can_upload_report_object(bucket_id, name))
+)
 WITH CHECK (
   bucket_id IN ('reports-originals', 'reports-public')
   AND (SELECT public.can_upload_report_object(bucket_id, name))

@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS public.reports (
   street_number INTEGER NULL,
   storage_path TEXT NOT NULL,
   photo_public_path TEXT NOT NULL,
-  mime_type TEXT NOT NULL,
-  byte_size INTEGER NOT NULL,
+  photo_public_mime_type TEXT NOT NULL,
+  photo_public_byte_size INTEGER NOT NULL,
   confirmation_count INTEGER NOT NULL DEFAULT 0,
   confirmation_threshold INTEGER NOT NULL DEFAULT 3,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -45,10 +45,10 @@ CREATE TABLE IF NOT EXISTS public.reports (
     ),
   CONSTRAINT check_reports_street_number
     CHECK (street_number IS NULL OR street_number BETWEEN 1 AND 99999),
-  CONSTRAINT check_reports_mime_type
-    CHECK (mime_type IN ('image/jpeg', 'image/png', 'image/webp')),
-  CONSTRAINT check_reports_byte_size
-    CHECK (byte_size BETWEEN 1 AND 4194304),
+  CONSTRAINT check_reports_photo_public_mime_type
+    CHECK (photo_public_mime_type IN ('image/jpeg', 'image/png', 'image/webp')),
+  CONSTRAINT check_reports_photo_public_byte_size
+    CHECK (photo_public_byte_size BETWEEN 1 AND 4194304),
   CONSTRAINT check_reports_confirmation_count
     CHECK (confirmation_count >= 0),
   CONSTRAINT check_reports_confirmation_threshold

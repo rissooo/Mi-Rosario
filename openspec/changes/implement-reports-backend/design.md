@@ -1,154 +1,94 @@
-# Design
+# Diseño
 
-## Context
+## Contexto
 
-The architecture baseline established shared types, validation rules, and fixtures (`lib/contracts/`).
-This design defines the concrete architecture for `feature/reports-backend`: Supabase PostgreSQL schemas, Row-Level Security (RLS), private Storage policies, atomic PostgreSQL RPC functions, and Next.js Route Handlers. All database access uses the active citizen session; no `service_role` or bypass secret is used.
+Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el comportamiento exigido. La rama contiene handlers, servicios y cinco migraciones aún no aplicadas en ningún entorno, según confirmó Agus. No hay Supabase local configurado todavía. Los contratos compartidos no incluyen `location.address` en esta rama; el PR #3 de Fran está abierto y sin mergear.
 
-## Goals / Non-Goals
+## Objetivos / Fuera de alcance
 
-**Goals:**
-- Provide atomic, idempotent publication of citizen reports with private original image storage.
-- Guarantee that original photos never leak to the public; present only time-limited signed viewing URLs.
-- Implement atomic citizen confirmations with row-level locking to prevent race conditions during state transitions.
-- Expose public report listings via a secure PostgreSQL view that strips author identity and internal storage references.
-- Enforce all security, permissions, and mutations at the database level (RLS + RPC).
+**Objetivos:** publicación recuperable y transaccional; separación entre original privada y copia pública saneada; exposición pública mínima; confirmación atómica bajo el umbral efectivo del reporte; verificación reproducible solo en Supabase local.
 
-**Non-Goals:**
-- Institutional operations or municipal verification workflows (out of MVP scope).
-- Modifying existing Google authentication or user session machinery in `utils/supabase/`.
-- Frontend map or report submission forms (Fran's responsibility).
-- Gemini Vision analysis (Valen's responsibility).
+**Fuera de alcance:** operaciones institucionales, moderación municipal, IA/visión, cambios a contratos compartidos, cambios al cliente Supabase compartido, limpieza automática de huérfanas y cualquier operación contra una base remota.
 
-## Decisions
+## Decisiones
 
-### 1. Storage & Database Workflow (Hilo 1)
-- **Order of Execution**:
-  1. Reserve an idempotency slot and generate/reserve `report_id`.
-  2. Upload photo to Supabase Storage.
-  3. Insert report into PostgreSQL with coordinates and human-readable address (`street text not null`, `street_number integer null`).
-- **Deterministic Storage Paths**:
-  - Pattern: `${user_id}/${report_id}/original.jpg`
-  - Fixed file name (`original.jpg`) ensures retries map to the exact same path.
-  - File content is validated by reading magic bytes/signatures (`image/jpeg`, `image/png`, `image/webp`), rejecting spoofed extensions.
-- **Compensation & Failure Handling**:
-  - If Storage fails: return HTTP 503 `STORAGE_UNAVAILABLE` immediately; no database record is created.
-  - If PostgreSQL insertion suffers a *definitive* error: execute compensating delete (`storage.remove([path])`) and mark idempotency slot failed.
-  - If a *network timeout* occurs during PostgreSQL insertion: do **not** delete the image. Leave the idempotency state uncertain (`in_progress` until expiration) to allow subsequent client retries to discover the committed report or recover safely.
-  - A scheduled maintenance job cleans up orphaned storage files older than 24 hours that have no associated report in `public.reports`.
-- **Photo Presentation**:
-  - The `reports-originals` bucket is strictly private (`public: false`).
-  - Public viewing uses time-limited signed URLs (`createSignedUrl` / `createSignedUrls` in batch for list endpoints).
-  - Vercel request body limit (~4.5 MB): Documented as an open discussion point with Fran (see Open Questions / Agreements).
+### 1. Orden de publicación y recuperación
 
-### 2. Durable Idempotency (Hilo 2)
-- **Table `public.idempotency_keys`**:
-  - Columns: `id` (UUID PK), `user_id` (UUID FK -> `auth.users`, `ON DELETE CASCADE`), `key` (UUID), `operation` (text), `payload_hash` (text), `status` ('in_progress' | 'completed' | 'failed'), `report_id` (UUID FK -> `reports(id)`), `locked_until` (timestamptz), `expires_at` (timestamptz), `created_at` (timestamptz).
-  - Unique constraint: `UNIQUE(user_id, key)`.
-  - Indexes: `(expires_at)` for cleanup, `(user_id, key)`.
-- **Atomic Slot Reservation (`claim_idempotency_key` RPC)**:
-  - Executes `INSERT INTO idempotency_keys ... ON CONFLICT (user_id, key) DO NOTHING`.
-  - If inserted: slot secured with `status = 'in_progress'`, `locked_until = now() + interval '3 minutes'`, `expires_at = now() + interval '24 hours'`.
-  - If not inserted (existing key):
-    - Reads existing record.
-    - If `payload_hash != incoming_hash`: return domain code `IDEMPOTENCY_CONFLICT` (HTTP 409).
-    - If `status == 'completed'`: return domain code `COMPLETED` along with `report_id` (reconstructed into HTTP 200).
-    - If `status == 'in_progress'` and `locked_until > now()`: return domain code `PUBLICATION_IN_PROGRESS` (HTTP 409 with `Retry-After: 5`).
-    - If `status == 'in_progress'` and `locked_until <= now()` (stale lock from crash): perform conditional `UPDATE ... WHERE locked_until <= now()` to reclaim the slot.
-    - If `status == 'failed'`: allow reclaiming the key.
-- **Payload Hash Calculation**:
-  - SHA-256 over canonical JSON string of report fields (recursive sorted keys including `location.address`, trimmed strings, normalized coordinate decimals) concatenated with the SHA-256 digest of the image file bytes. Excludes client-provided file names.
-- **DTO Reconstruction**:
-  - Store only `report_id` (not `response_body` JSON) to maintain referential integrity. On completed replays, query `reports` and generate fresh signed photo URLs.
+1. Reclamar la clave autenticada. La RPC fija el bloqueo en tres minutos y genera y persiste un `report_id` UUID en la misma fila; las repeticiones recuperan ese ID. `report_id` no lleva FK obligatoria porque la reserva precede al reporte; `publish_report` valida y materializa esa relación en la misma transacción.
+2. Validar y sanear la imagen, subir la original al bucket privado y la copia derivada al bucket público.
+3. Invocar `publish_report`. La RPC vuelve a validar la propiedad y el hash, bloquea la fila de idempotencia con `FOR UPDATE`, inserta el reporte `pending` usando el ID reservado y completa la clave en una transacción. Si ya existe el mismo ID para el mismo usuario, completa la clave y devuelve el reporte existente. Un ID perteneciente a otro usuario o una carga incompatible falla sin exponer datos.
 
-### 3. Citizen Confirmations & Atomic Transition (Hilo 3)
-- **Table `public.report_confirmations`**:
-  - Columns: `id` (UUID PK), `report_id` (UUID FK -> `reports(id)`), `user_id` (UUID FK -> `auth.users`), `created_at` (timestamptz).
-  - Constraint: `UNIQUE(report_id, user_id)`.
-  - Indexes: `(report_id)`, `(user_id)`.
-  - RLS: Direct `INSERT`, `UPDATE`, and `DELETE` are disallowed for clients. `SELECT` is permitted only for `user_id = (select auth.uid())`.
-- **RPC Function `confirm_report(p_report_id UUID)`**:
-  - Declared `SECURITY DEFINER` with `SET search_path = ''`.
-  - `REVOKE EXECUTE ON FUNCTION confirm_report FROM public, anon; GRANT EXECUTE ON FUNCTION confirm_report TO authenticated;`
-  - Reads `v_user_id := auth.uid()`. If null, raises `UNAUTHENTICATED`.
-  - Executes `SELECT id, user_id, status FROM public.reports WHERE id = p_report_id FOR UPDATE;`
-  - Validates:
-    - If report does not exist: returns `REPORT_NOT_FOUND`.
-    - If `v_user_id = report.user_id`: returns `AUTHOR_CANNOT_CONFIRM`.
-    - If `report.status NOT IN ('pending', 'citizen-verification')`: returns `REPORT_RESOLVED`.
-  - Executes `INSERT INTO public.report_confirmations (report_id, user_id) VALUES (p_report_id, v_user_id) ON CONFLICT (report_id, user_id) DO NOTHING;`
-  - If conflict (already confirmed): returns `ALREADY_CONFIRMED` with existing timestamp (HTTP 200).
-  - Counts valid distinct confirmations: `SELECT count(*) FROM public.report_confirmations WHERE report_id = p_report_id;`
-  - Reads effective threshold from `public.get_confirmation_threshold()` (returns 3).
-  - If `count >= threshold` and `report.status = 'pending'`:
-    - Updates `public.reports SET status = 'citizen-verification', corroborated_at = now(), updated_at = now() WHERE id = p_report_id;`
-    - Returns `CONFIRMED_AND_CORROBORATED` (HTTP 201).
-  - Otherwise returns `CONFIRMED` (HTTP 201).
-  - Route handler maps domain return codes to HTTP status and contract envelopes.
+`fail_idempotency_key` es la RPC autenticada análoga para un error definitivo anterior al commit. El servicio compensa ambos objetos y marca la clave como fallida solo ante un error definitivo de base anterior al commit. Un timeout o error de red deja intactos los objetos y el estado para que el reintento resuelva el resultado. Ningún error posterior al commit borra fotos ni marca la clave como fallida.
 
-### 4. RLS & Visibility Model (Hilo 4)
-- **Table `public.reports` Security**:
-  - Closed to `anon` (no direct `SELECT`).
-  - No client `INSERT`, `UPDATE`, or `DELETE` policies.
-  - Columns include: `street varchar(80) not null check (char_length(trim(street)) between 2 and 80)`, `street_number integer null check (street_number between 1 and 99999)`.
-  - Initial status strictly set to `pending` by server logic.
-  - Moderator actions (e.g. resolution) require `(auth.jwt() -> 'app_metadata' ->> 'role') = 'moderator'` (never `user_metadata`).
-- **Secure View `public.public_reports`**:
-  - Definition:
-    ```sql
-    CREATE VIEW public.public_reports WITH (security_invoker = false) AS
-    SELECT id, title, description, category_id, severity, status,
-           latitude, longitude, street, street_number,
-           created_at, updated_at, corroborated_at, resolved_at,
-           storage_path, mime_type, byte_size
-    FROM public.reports
-    WHERE status IN ('pending', 'citizen-verification', 'resolved');
-    ```
-  - Note: `storage_path` is consumed only by the Route Handler to generate signed URLs; it is not serialized in the final `Report` DTO.
-  - `GRANT SELECT ON public.public_reports TO anon, authenticated;`
-  - States `rejected` or `hidden` are strictly omitted from the view.
-- **Storage Policies**:
-  - `reports-originals` bucket policy for upload:
-    ```sql
-    CREATE POLICY "Allow authenticated user upload to own folder"
-    ON storage.objects FOR INSERT TO authenticated
-    WITH CHECK (
-      bucket_id = 'reports-originals' AND
-      (storage.foldername(name))[1] = (select auth.uid())::text
-    );
-    ```
-  - Delete policy for compensation:
-    ```sql
-    CREATE POLICY "Allow user delete own pending upload"
-    ON storage.objects FOR DELETE TO authenticated
-    USING (
-      bucket_id = 'reports-originals' AND
-      (storage.foldername(name))[1] = (select auth.uid())::text
-    );
-    ```
-- **Indexing & Queries**:
-  - Composite indexes: `(status, created_at DESC)`, `(category_id, created_at DESC)`.
-  - Spatial indexing: PostGIS `geom geometry(Point, 4326)` with GIST index `USING GIST(geom)` (or composite B-Tree on `(latitude, longitude)` if PostGIS extension is unavailable in the environment).
-  - Keyset cursor pagination encoding `{ version: 1, createdAt, id, filters }` as base64url JSON (matching `app/components/map/report-source.ts` client contract) with stable `ORDER BY created_at DESC, id DESC`.
+### 2. Fotos originales y públicas
 
-## Risks / Trade-offs
+- `reports-originals` es privado. La ruta de la original puede incluir el usuario, pero nunca sale en una vista o DTO. La política de inserción permite el objeto solo si la ruta corresponde a una clave `in_progress` del usuario; la política de borrado solo permite retirar una original que aún no pertenece a un reporte publicado. Ambas comprobaciones usan helpers `SECURITY DEFINER` con `search_path` vacío.
+- `reports-public` es público, tiene límites de tamaño y MIME y recibe la copia sin metadatos con ruta `{report_id}.{ext}`, sin identificador de usuario. La política de inserción exige una clave propia en estado `in_progress`. La URL de lectura se arma con `getPublicUrl`; no se generan URLs firmadas para visitantes anónimos.
+- El saneamiento se hace en TypeScript puro, sin decodificar la imagen: quitar segmentos APP en JPEG, chunks `eXIf` y de texto en PNG y chunk EXIF en WebP. Si la estructura no se puede analizar con seguridad, se rechaza como error de validación. Se valida el contenido y MIME contra `IMAGE_MIME_TYPES`.
+- La elección de bucket público para la copia saneada es provisoria y debe confirmarse con Fran. La original nunca se hace pública. La política/retención de originales sigue siendo provisoria según el contrato.
+- No se implementa limpieza SQL de huérfanas. Borrar objetos exige Storage API con credencial de servidor; queda pendiente definir una limpieza segura que no agregue `service_role` al flujo normal.
 
-- **[Risk] Multiple fake accounts confirming report** → *Mitigation*: Contract limitation noted: 3 distinct accounts reach the citizen threshold. In future milestones, account age, phone verification, or karma can be introduced.
-- **[Risk] High volume list queries causing Supabase Storage API rate limits for signed URLs** → *Mitigation*: Use batch signing (`createSignedUrls`) in a single network call within Route Handlers, with caching headers (`Cache-Control: private, max-age=300`).
-- **[Risk] Vercel serverless function body size limit (~4.5 MB)** → *Mitigation*: Compress images on the client before submission, or coordinate with Fran on presigned direct storage upload if necessary.
+### 3. Idempotencia
 
-## Open Questions & Agreements with Teammates
+- `idempotency_keys` mantiene RLS activa y no permite lectura directa del cliente. Las RPC `claim_idempotency_key`, `publish_report` y `fail_idempotency_key` obtienen el usuario de `auth.uid()`, son `SECURITY DEFINER` con `search_path = ''`, revocan ejecución a `public` y `anon`, y conceden ejecución solo a `authenticated`.
+- `claim_idempotency_key` recibe clave y hash, sin parámetro de duración. `locked_until` usa un intervalo fijo de tres minutos, separado de `expires_at`; el claim es atómico con `INSERT ... ON CONFLICT` y recuperación condicional de locks vencidos.
+- El hash cubre SHA-256 de bytes originales y JSON canónico, incluida `location.address`, con texto normalizado, coordenadas normalizadas y claves ordenadas. Se almacena `report_id`, no un cuerpo de respuesta. Una repetición completada reconstruye el DTO desde la base y vuelve a obtener la URL pública.
 
-### To agree with Fran (Frontend / Maps):
-1. **Multipart Upload vs. Direct Storage Upload**:
-   - Current plan uses `POST /api/reports` with multipart form data (photo + JSON).
-   - If image size exceeds ~4.5 MB, Vercel edge/serverless will reject the payload with HTTP 413. Fran's client should ensure client-side resizing/compression to < 4 MB before upload. Alternatively, we can evaluate presigned direct-to-storage uploads in a future iteration.
-2. **Batch Signed URL Latency on Map Exploration**:
-   - For map queries returning up to 50 reports, the backend will batch-sign 50 URLs. We will benchmark response times and consider derivative caching.
-3. **Address Contract & Keyset Cursor (PR #3 Alignment)**:
-   - Accepted the `Location.address` shape (`{ street, number }`) and limits (street 2–80, number 1–99999 or null). Backend stores separate columns `street` and `street_number` in `public.reports`, allowing intersections/parks with `number = null`.
-   - Backend `GET /api/reports` implements keyset cursor pagination matching `report-source.ts` `{ version: 1, createdAt, id, filters }` encoded as base64url.
+### 4. Esquema, RLS y confirmaciones
 
-### To agree with Valen (Gemini Vision):
-1. **Image Storage Segregation**:
-   - Valen's vision endpoint (`POST /api/vision/analyze`) operates purely in-memory and does not write to Storage. Confirm that no vision metadata needs to be passed into report storage.
+- `reports.status` acepta solo `pending` y `citizen-verification` en el MVP. Tiene `confirmation_threshold` por fila con default 3 y `confirmation_count` mantenido por `confirm_report` bajo el lock de la fila. Las columnas `street` y `street_number` validan calle de 2 a 80 caracteres sin espacios exteriores y número opcional de 1 a 99999. Se guardan por separado la ruta privada original y `photo_public_path`.
+- Se revocan todos los privilegios directos sobre `reports` a `anon` y `authenticated`; solo `public_reports` recibe `SELECT`. No hay políticas de mutación de clientes. La vista incluye solo estados MVP y expone `photo_public_path`, `confirmation_count`, `confirmation_threshold`, dirección y campos públicos. Excluye `user_id`, ruta original, MIME, tamaño y campos institucionales `resolved`/`resolved_at`.
+- La vista usa `security_invoker = false` con privilegios de propietario acotados para proyectar filas, y recibe permisos `SELECT` solo para `anon` y `authenticated`. Revisar en Supabase local el propietario de la vista y sus permisos efectivos.
+- `confirm_report` toma usuario de `auth.uid()`, usa `SECURITY DEFINER`, `search_path` vacío y `FOR UPDATE`; no acepta conteos del cliente. Lee el umbral de la fila, inserta con unicidad por reporte/usuario y actualiza el conteo/transición dentro de la operación.
+- La precedencia es: validar existencia y autoría; si ya hay una confirmación de esa cuenta, responder `ALREADY_CONFIRMED` idempotentemente; si no existe y la etapa ya no admite nuevas confirmaciones, responder `REPORT_RESOLVED`; en caso contrario insertar y contar. Así, el replay existente se distingue de un intento nuevo en una etapa cerrada.
+- Se elimina `get_confirmation_threshold()` inmutable. El cliente no puede escribir `confirmation_count` ni cambiar el umbral.
+
+### 5. API, dirección y cursor
+
+- Los servicios publican solo mediante `publish_report`; el `INSERT` directo de la clave publicable queda prohibido. Para listas y detalle, se mapea `photo.url` desde la URL pública de `photo_public_path`.
+- La rama recibe la dirección mediante un adaptador pequeño local en `lib/reports/`, con tipo local `{ street, number }`; no se modifica `lib/contracts/`. Lista y detalle siempre devuelven `location.address`, sin cast ni calle vacía de fallback. Al integrarse el PR #3, el único archivo que debe reemplazarse para ese límite es el adaptador.
+- Se conserva la forma de cursor `{ version, createdAt, id, filters }`, el orden estable y los filtros existentes. `resolvedAt` del DTO se resuelve como `null` en el MVP; no se lee ni publica `resolved_at`.
+
+### 6. Migraciones y verificación local
+
+- Como las migraciones `20261023000001` a `20261023000005` no fueron aplicadas en ningún entorno, se editan en su lugar. Si antes de editarlas aparece evidencia de aplicación, detener el bloque y avisar para crear migraciones nuevas.
+- No ejecutar `supabase link`, `db push` ni `reset --linked`. Usar únicamente Supabase local si Docker y Supabase CLI ya funcionan; no instalar herramientas. Los scripts de integración deben abortar salvo que la URL configurada sea `localhost` o `127.0.0.1`.
+- Si no existe entorno local, quedan sin marcar las pruebas que dependen de Postgres, Auth o Storage reales, con la limitación documentada.
+
+## Riesgos y compensaciones
+
+- **[Riesgo]** Una copia públicamente accesible se comparte por URL. **→ Mitigación:** solo se expone la copia derivada, saneada y sin ruta de usuario; mantener la decisión provisoria hasta revisión de Fran.
+- **[Riesgo]** Sin credencial de servidor no se puede enumerar ni borrar huérfanas con garantías. **→ Mitigación:** no usar SQL directo sobre `storage.objects`; dejar la limpieza pendiente y diseñar una Storage API segura.
+- **[Riesgo]** Límites de cuerpo en el hosting pueden rechazar fotos multipart válidas. **→ Mitigación:** acordar con Fran tamaño máximo de cliente compatible con 4 MiB de archivo más el resto del request y verificar el límite real del despliegue antes de integrar.
+- **[Riesgo]** Fixtures y clientes simulados no prueban RLS ni concurrencia. **→ Mitigación:** scripts con guardia de URL local y pruebas contra Auth, Postgres y Storage locales; sin marcar evidencia que no se haya ejecutado.
+
+## Plan de migración y merge
+
+1. Revisar los cuatro artefactos y el estado real del código; mantener las cinco migraciones editables en su lugar mientras no haya evidencia de aplicación.
+2. Implementar y probar los bloques de esquema/RPC, servicios/fotos y rutas; ejecutar cada bloque de integración solo si Supabase local está disponible.
+3. Integrar primero PR #3 (`add-report-address`) a `main`; después actualizar únicamente `lib/reports/address.ts` para importar el contrato compartido y correr las verificaciones de integración.
+4. Integrar el PR de `feature/reports-backend` después del PR #3 y sus revisiones. No hacer push ni merge desde este trabajo.
+
+## Decisiones abiertas
+
+### Fran — interfaz y mapas
+
+- Confirmar que `reports-public` con copias saneadas y URL pública satisface el consumo de lista/detalle y el tratamiento de caché.
+- Confirmar el límite de tamaño del multipart desde cliente considerando el límite del hosting, y si el cliente comprimirá antes de enviar.
+- Revisar e integrar PR #3 antes que el backend; luego cambiar solamente el adaptador de dirección.
+- Definir con qué mecanismo autorizado se limpiarán huérfanas mediante Storage API; no se implementa en SQL.
+- Confirmar la política provisoria de retención de originales y copias.
+
+### Valen — visión
+
+- Confirmar que análisis de visión permanece en memoria y que el flujo de reportes no necesita persistir resultados ni metadatos de análisis. El backend no recibe ni almacena datos de visión en este cambio.
+
+### Francisco
+
+- No aparece identificado en las instrucciones del equipo ni en la documentación consultada. Confirmar su rol y si debe revisar o decidir alguna política antes de integrar; no se le asigna una decisión técnica por inferencia.
+
+## Pedidos a otros módulos
+
+- **Fran / PR #3 (`add-report-address`):** integrar primero el contrato `Location.address` compartido. No editar `lib/contracts/**`, `docs/contracts.md` ni `package.json` desde este cambio. Hasta el merge, el backend mantiene su adaptador local.
+- **Fran / Storage:** revisar la decisión provisoria de lectura pública de copias saneadas y acordar consumo/cache, tamaño de request y limpieza por Storage API.
+- **Valen / visión:** confirmar el límite de datos en memoria, sin pedir cambios en `lib/vision/**` dentro de este cambio.

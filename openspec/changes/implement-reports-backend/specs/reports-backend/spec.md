@@ -2,101 +2,119 @@
 
 ## Purpose
 
-Provides durable server persistence, private photograph storage, atomic idempotency, citizen corroborations, and secure database projections for incident reports.
+Permite publicar y consultar reportes ciudadanos con persistencia segura, fotos presentables sin metadatos, reintentos idempotentes y corroboraciones atómicas en la base de datos.
 
 ## ADDED Requirements
 
-### Requirement: Authenticated report publication and storage
-The backend SHALL accept multipart publication containing reviewed report fields, a valid original image file, and an Idempotency-Key header from an authenticated citizen session. The report fields SHALL include geographic coordinates and human-readable address (street and optional number) conforming to shared contracts. It SHALL store the original file in a private storage bucket under the author's path before creating the report record in the database.
+### Requirement: Publicación autenticada con foto segura y dirección
+El backend SHALL aceptar publicaciones multipart autenticadas con los campos revisados, una foto original válida y una clave de idempotencia. SHALL mantener la original privada y exponer únicamente una copia pública sin metadatos; la dirección SHALL incluir calle y número opcional.
 
-#### Scenario: Successful report creation
-- **WHEN** an authenticated citizen submits a valid publication request with an original image and a new UUID Idempotency-Key
-- **THEN** the system stores the original image in the private storage bucket
-- **THEN** the system inserts the report record with street address, coordinates, and initial stage "pending"
-- **THEN** the system returns HTTP 201 Created with the public Report DTO containing the complete location (coordinates and address) and a signed viewing photo URL
+#### Scenario: Publicación exitosa
+- **WHEN** una persona autenticada publica un reporte válido con una clave UUID nueva y una foto admitida
+- **THEN** el sistema guarda la original en almacenamiento privado y una copia saneada en almacenamiento público
+- **THEN** crea el reporte en estado `pending`, con la dirección y el `report_id` reservado para esa clave
+- **THEN** responde HTTP 201 con un DTO que incluye `location.address` y una URL pública de la copia saneada
 
-#### Scenario: Invalid or missing idempotency key
-- **WHEN** a publication request is submitted without an Idempotency-Key header or with a malformed key
-- **THEN** the system rejects the request with HTTP 400 Bad Request without writing to storage or the database
+#### Scenario: Solicitud sin clave válida
+- **WHEN** una publicación no tiene `Idempotency-Key` o contiene una clave mal formada
+- **THEN** el sistema responde HTTP 400 y no escribe en la base ni en Storage
 
-#### Scenario: Storage failure during publication
-- **WHEN** an authenticated citizen publishes a report but the storage service fails to store the original image
-- **THEN** the system aborts publication, inserts no database record, and returns HTTP 503 STORAGE_UNAVAILABLE
+#### Scenario: Tipo de imagen inválido o formato no analizable
+- **WHEN** el contenido no coincide con un JPEG, PNG o WebP admitido, o no puede analizarse para quitar metadatos
+- **THEN** el sistema rechaza la publicación como error de validación y no publica el reporte
 
-#### Scenario: Definitive database failure compensation
-- **WHEN** an original image is successfully uploaded but the subsequent database insertion suffers a definitive failure
-- **THEN** the system deletes the uploaded image from the private storage bucket as compensation
-- **THEN** the system marks the idempotency record as failed or unlocks it to permit future retries
+#### Scenario: Fallo de Storage antes de persistir
+- **WHEN** Storage no puede guardar cualquiera de las dos copias antes de publicar el reporte
+- **THEN** el sistema no crea el reporte y responde con el error de disponibilidad correspondiente
 
-### Requirement: Durable publication idempotency
-The backend SHALL track publication idempotency scoped by citizen account and operation. It SHALL distinguish in-progress operations from completed ones and detect payload changes for the same key.
+#### Scenario: Error definitivo de base anterior al commit
+- **WHEN** la RPC de publicación devuelve un error definitivo antes de confirmar la transacción
+- **THEN** el sistema elimina los objetos subidos y marca la clave como fallida
 
-#### Scenario: Completed publication replay
-- **WHEN** an authenticated citizen retries a publication using an Idempotency-Key that already completed with the same payload
-- **THEN** the system returns HTTP 200 OK with the existing Report DTO and a refreshed signed photo URL
-- **THEN** no duplicate database row or storage object is created
+#### Scenario: Resultado ambiguo por timeout
+- **WHEN** la solicitud pierde conexión o vence el tiempo de espera durante la publicación
+- **THEN** el sistema conserva los objetos y la clave sin marcar como fallida
+- **THEN** un reintento con la misma clave y el mismo contenido reutiliza el mismo `report_id` y resuelve si la publicación se confirmó
 
-#### Scenario: Concurrent in-progress publication retry
-- **WHEN** a publication retry arrives while an existing request with the same key is actively locked and processing
-- **THEN** the system returns HTTP 409 Conflict with code PUBLICATION_IN_PROGRESS and a Retry-After header
+#### Scenario: Error posterior a una publicación confirmada
+- **WHEN** ocurre un error al reconstruir o devolver la respuesta después del commit
+- **THEN** el sistema conserva el reporte y ambas fotos, y no marca la clave como fallida
 
-#### Scenario: Reused key with altered payload
-- **WHEN** a publication request reuses an Idempotency-Key with a different payload hash than the original request
-- **THEN** the system returns HTTP 409 Conflict with code IDEMPOTENCY_CONFLICT
+### Requirement: Idempotencia durable de publicación
+El backend SHALL delimitar la idempotencia por usuario y clave, reservar un `report_id` al reclamarla y distinguir operaciones activas, completadas y fallidas.
 
-### Requirement: Public report catalog and geospatial querying
-The backend SHALL expose public endpoints to query published reports without disclosing author identity or internal storage paths. Public listings SHALL support category, status, and bounding-box filters with keyset pagination.
+#### Scenario: Repetición de publicación completada
+- **WHEN** el mismo usuario reintenta una clave completada con el mismo contenido
+- **THEN** el sistema devuelve HTTP 200 con el reporte existente y la misma identidad de reporte
+- **THEN** no crea otro reporte ni otros objetos de Storage
 
-#### Scenario: Anonymous public list query
-- **WHEN** an unauthenticated client requests reports within a geographic bounding box
-- **THEN** the system queries the secure public view and returns HTTP 200 OK with sanitized Report DTOs
-- **THEN** author user IDs, emails, and private storage paths are completely omitted
-- **THEN** each report includes coordinates and human-readable address matching the Location contract
-- **THEN** photo fields contain valid temporary signed viewing URLs
+#### Scenario: Repetición concurrente durante el bloqueo
+- **WHEN** llega otro request con la misma clave mientras el primer request conserva el bloqueo de tres minutos
+- **THEN** el sistema responde HTTP 409 con `PUBLICATION_IN_PROGRESS` y `Retry-After`
 
-#### Scenario: Exclusion of hidden or unapproved stages
-- **WHEN** a client queries public reports
-- **THEN** the system only returns reports with stages "pending", "citizen-verification", or "resolved"
-- **THEN** rejected or hidden reports are strictly excluded from the query results
+#### Scenario: Reutilización de clave con contenido distinto
+- **WHEN** una clave existente se presenta con un hash de contenido diferente
+- **THEN** el sistema responde HTTP 409 con `IDEMPOTENCY_CONFLICT`
 
-### Requirement: Citizen confirmation and atomic transition
-The backend SHALL allow authenticated citizens who are not the report's author to confirm a report. It SHALL enforce at most one confirmation per account per report and atomically advance the stage to citizen-verification upon reaching the effective confirmation threshold.
+### Requirement: Catálogo público de reportes MVP
+El catálogo público SHALL consultar una proyección que omita identidad del autor y rutas privadas, y solo SHALL incluir los estados MVP `pending` y `citizen-verification`.
 
-#### Scenario: First qualifying citizen confirmation
-- **WHEN** an authenticated citizen who is not the author confirms a pending report for the first time
-- **THEN** the system records the confirmation with the citizen's user ID from the active session
-- **THEN** the system returns HTTP 201 Created with confirmed status true and updated verification count
+#### Scenario: Consulta pública de reportes
+- **WHEN** una persona anónima lista reportes con filtros geográficos, de categoría o estado
+- **THEN** recibe páginas estables con cursor y DTOs que incluyen coordenadas, `address`, estado y datos efectivos de confirmación
+- **THEN** cada foto usa la URL pública de la copia saneada, accesible sin sesión
+- **THEN** la proyección no expone `user_id`, ruta original, MIME ni tamaño de archivo
 
-#### Scenario: Author self-confirmation rejection
-- **WHEN** the author of a report attempts to confirm their own report
-- **THEN** the system rejects the confirmation with HTTP 403 Forbidden and code AUTHOR_CANNOT_CONFIRM
-- **THEN** no confirmation record is inserted and the count is not incremented
+#### Scenario: Exclusión de etapas fuera del MVP
+- **WHEN** una persona consulta el catálogo público
+- **THEN** solo se devuelven reportes `pending` o `citizen-verification`
+- **THEN** no se exponen reportes ocultos, rechazados ni etapas institucionales futuras
 
-#### Scenario: Duplicate confirmation replay
-- **WHEN** a citizen confirms a report that they have already confirmed
-- **THEN** the system returns HTTP 200 OK with confirmed status true without inserting a duplicate row
+### Requirement: Confirmación ciudadana y transición atómica
+El backend SHALL aceptar confirmaciones autenticadas de personas distintas del autor, con una por cuenta y reporte, y SHALL mantener el conteo y la transición bajo control transaccional de la base.
 
-#### Scenario: Atomic transition at confirmation threshold
-- **WHEN** a report receives its third distinct valid citizen confirmation meeting the effective threshold of 3
-- **THEN** the system atomically updates the report stage from "pending" to "citizen-verification"
-- **THEN** the system records the corroboration timestamp
-- **THEN** subsequent concurrent confirmations do not repeat or re-trigger the state transition
+#### Scenario: Confirmación válida
+- **WHEN** una persona autenticada distinta del autor confirma por primera vez un reporte `pending`
+- **THEN** la base registra una sola confirmación para esa cuenta y reporte
+- **THEN** devuelve el conteo y umbral efectivos, y cambia a `citizen-verification` cuando se alcanza el umbral del reporte
 
-#### Scenario: Rejection of confirmations on resolved reports
-- **WHEN** an authenticated citizen attempts to add a new confirmation to a report in "resolved" stage
-- **THEN** the system rejects the request with HTTP 409 Conflict and code REPORT_RESOLVED
+#### Scenario: El autor intenta confirmarse
+- **WHEN** el autor confirma su propio reporte
+- **THEN** el sistema responde con `AUTHOR_CANNOT_CONFIRM` y no inserta una confirmación
 
-### Requirement: Database security and projection enforcement
-The database SHALL enforce row-level security and permission boundaries directly in PostgreSQL. Direct client mutations and unauthorized cross-account reads SHALL be prohibited.
+#### Scenario: Repetición de una confirmación existente
+- **WHEN** una cuenta repite una confirmación que ya registró
+- **THEN** el sistema responde con `ALREADY_CONFIRMED` sin duplicar la fila, incluso si la etapa ya no admite nuevas confirmaciones
 
-#### Scenario: Anonymous query on internal tables
-- **WHEN** an anonymous request attempts to read the internal reports table directly using the publishable key
-- **THEN** the database row-level security policy rejects the read or returns an empty result set
+#### Scenario: Nueva confirmación en una etapa no confirmable
+- **WHEN** una cuenta intenta agregar una confirmación nueva a una etapa no confirmable, incluida `resolved` si existiera en una evolución posterior
+- **THEN** el sistema responde con `REPORT_RESOLVED` y no inserta una fila
 
-#### Scenario: Private confirmation inspection
-- **WHEN** an authenticated citizen queries confirmation records
-- **THEN** row-level security allows the citizen to see only their own confirmations and rejects reading confirmations belonging to other citizens
+#### Scenario: Confirmaciones concurrentes alcanzan el umbral
+- **WHEN** tres cuentas válidas confirman concurrentemente un reporte con umbral efectivo 3
+- **THEN** la base serializa el conteo, registra una fila por cuenta y transiciona el reporte una sola vez
 
-#### Scenario: Unauthorized direct client mutations
-- **WHEN** a client attempts direct INSERT, UPDATE, or DELETE on the reports or report_confirmations tables
-- **THEN** the database rejects the operation because no client mutation policies are granted
+### Requirement: Límites de seguridad de base y almacenamiento
+La base SHALL aplicar permisos y RLS; las mutaciones de reportes e idempotencia SHALL realizarse solo mediante RPC autenticadas, y los objetos originales SHALL permanecer privados.
+
+#### Scenario: Lectura directa de tabla interna
+- **WHEN** una clave publicable consulta `reports` directamente como `anon` o `authenticated`
+- **THEN** no obtiene filas ni columnas de la tabla
+- **THEN** puede leer únicamente las columnas otorgadas de `public_reports`
+
+#### Scenario: Inserción directa de reporte
+- **WHEN** un cliente autenticado intenta insertar directamente en `reports`
+- **THEN** PostgreSQL rechaza la operación
+
+#### Scenario: Publicación RPC sin sesión
+- **WHEN** un cliente anónimo invoca la RPC de publicación o de reclamo de idempotencia
+- **THEN** la base rechaza la llamada por falta de sesión autenticada
+
+#### Scenario: Lectura de confirmaciones de otra cuenta
+- **WHEN** una cuenta consulta confirmaciones de otra cuenta
+- **THEN** RLS no revela esas filas
+
+#### Scenario: Acceso a fotos
+- **WHEN** una persona anónima solicita la URL de una foto pública
+- **THEN** solo accede a la copia saneada
+- **THEN** la original privada no es accesible sin autorización

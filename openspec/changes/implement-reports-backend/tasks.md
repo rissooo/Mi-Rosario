@@ -1,43 +1,53 @@
-# Tasks
+# Tareas
 
-## 1. Storage and Database Schema (Hilo 1)
+## 1. Esquema y Storage
 
-- [x] 1.1 Create migration for `reports-originals` private Storage bucket with 4 MiB size limit, allowed MIME types (`image/jpeg`, `image/png`, `image/webp`), and authenticated user path policies (`${user_id}/${report_id}/original.jpg`); verify bucket creation and policies via migration script.
-- [x] 1.2 Implement Storage service module in `lib/reports/photos.ts` with content sniffing (magic bytes validation), upload under author folder, compensation removal on definitive database errors, and batch signed URL generation (`createSignedUrls`); verify with unit tests using synthetic image buffers.
-- [x] 1.3 Add database migration creating `public.reports` table with strict types, spatial coordinates, address columns (`street text not null`, `street_number integer null`), timestamps, and server-enforced initial status `pending`; verify table structure, foreign keys, and indexes.
+- [ ] 1.1 Ajustar migración de `reports` para estados MVP, threshold y count por reporte, validación de calle/número y rutas original/pública; verificar DDL e índices contra el esquema esperado.
+- [ ] 1.2 Configurar buckets privado/público con límites MIME/tamaño, política de carga pública ligada a clave propia activa y borrado de original solo antes de publicar; verificar políticas en Supabase local.
+- [ ] 1.3 Asegurar RLS de `reports`, confirmaciones e idempotencia, revocar acceso directo y otorgar `SELECT` solo a la vista pública; inspeccionar roles/policies en Supabase local.
+- [ ] 1.4 Crear `public_reports` sin identidad, ruta privada, MIME, tamaño ni campos institucionales, y con solo estados MVP; probar columnas y permisos con `anon` y `authenticated` locales.
 
-## 2. Durable Idempotency (Hilo 2)
+## 2. Idempotencia y publicación transaccional
 
-- [x] 2.1 Create migration for `public.idempotency_keys` table with `user_id`, `key`, `operation`, `payload_hash`, `status`, `report_id`, `locked_until`, `expires_at`, and `UNIQUE(user_id, key)`; verify schema, constraints, and index on `expires_at`.
-- [x] 2.2 Implement `claim_idempotency_key` PostgreSQL RPC function with atomic `INSERT ... ON CONFLICT DO NOTHING`, conditional lock updates on expired entries, and domain conflict detection; verify with test cases for new, completed replay, active in-progress, and payload conflict.
-- [x] 2.3 Implement idempotency helper in `lib/reports/idempotency.ts` computing canonical JSON hash and file content SHA-256; verify canonicalization matches recursive sorted keys (including `location.address`), trimmed text, and decimal coordinates.
+- [ ] 2.1 Ajustar `idempotency_keys` para reservar y guardar `report_id` sin FK que impida reservar antes de insertar el reporte; verificar constraints e índices en Postgres local.
+- [ ] 2.2 Rehacer `claim_idempotency_key` con `auth.uid()`, `SECURITY DEFINER`, `search_path` vacío, permisos solo `authenticated`, RLS activa y bloqueo fijo de tres minutos; probar claims y carreras en Postgres local.
+- [ ] 2.3 Implementar `publish_report` y `fail_idempotency_key` con bloqueo de clave, validaciones de usuario/hash y actualización atómica; probar publicación, replay, propiedad y rollback en Postgres local.
+- [ ] 2.4 Cambiar el servicio para publicar por RPC y compensar solo ante errores definitivos pre-commit; probar reintento con `report_id` estable y conservar fotos ante timeout simulado.
 
-## 3. Citizen Confirmations & Atomic Transition (Hilo 3)
+## 3. Fotos y mapeo de DTOs
 
-- [x] 3.1 Create migration for `public.report_confirmations` table with `UNIQUE(report_id, user_id)` constraint, indexed foreign keys, and no client mutation policies; verify schema and unique constraint.
-- [x] 3.2 Create PostgreSQL function `public.get_confirmation_threshold()` returning positive integer (3) and migration for `confirm_report(p_report_id UUID)` RPC declared `SECURITY DEFINER` with `SET search_path = ''`, `SELECT ... FOR UPDATE`, author exclusion, duplicate handling, and atomic transition to `citizen-verification` recording `corroborated_at`; verify function grants (`REVOKE public/anon`, `GRANT authenticated`).
-- [x] 3.3 Implement confirmation service in `lib/reports/confirmations.ts` wrapping RPC calls and mapping internal domain codes to contract responses; verify mapping against `lib/contracts/reports.ts`.
+- [ ] 3.1 Generar en TypeScript la copia sin metadatos para JPEG/PNG/WebP sin decodificar la imagen; probar buffers mínimos con EXIF/texto y rechazo de formatos no analizables.
+- [ ] 3.2 Subir original y copia a rutas separadas, validar `IMAGE_MIME_TYPES` y construir `photo.url` desde la copia pública; probar privacidad de la original y URL pública.
+- [ ] 3.3 Crear `lib/reports/address.ts` con tipo local y mapear siempre `location.address` en lista/detalle sin cast ni fallback vacío; cubrir la forma del DTO sin editar contratos compartidos.
+- [ ] 3.4 Mantener cursor `{ version, createdAt, id, filters }`, filtros y orden actual; agregar tests de `listReportsService` para dirección, campos de foto y paginación.
+- [ ] 3.5 Resolver las seis advertencias de lint de variables sin usar sin cambiar el comportamiento; verificar lint y TypeScript.
 
-## 4. RLS, Projections, and Route Handlers (Hilo 4)
+## 4. Confirmaciones y rutas
 
-- [x] 4.1 Create migration for secure view `public.public_reports` filtering stages (`pending`, `citizen-verification`, `resolved`), projecting `street` and `street_number`, and omitting `user_id` and raw storage paths; verify `GRANT SELECT` to `anon` and `authenticated`.
-- [x] 4.2 Enforce RLS policies on `reports`, `report_confirmations`, and `idempotency_keys` using `(select auth.uid())` and disallowing client mutations; verify policies in local Postgres/Supabase test environment.
-- [x] 4.3 Implement Route Handlers `POST /api/reports` and `GET /api/reports` in `app/api/reports/route.ts` with multipart parsing, idempotency enforcement, bounding-box querying, base64url cursor pagination compatible with map viewer, address reconstruction, and batch signed photo URLs; verify handler responses conform to contract DTOs.
-- [x] 4.4 Implement Route Handlers `GET /api/reports/[id]` in `app/api/reports/[id]/route.ts`, and `GET` & `POST` in `app/api/reports/[id]/confirmations/route.ts` and `app/api/reports/[id]/confirmations/me/route.ts`; verify status codes and error envelopes.
+- [ ] 4.1 Actualizar `confirm_report` para leer el threshold del reporte, mantener el count bajo lock y quitar `get_confirmation_threshold()`; probar duplicado, autoría y precedencia de errores contra Postgres local.
+- [ ] 4.2 Implementar RLS y proyección pública conforme a la spec, incluyendo `REVOKE ALL` en `reports` y `GRANT SELECT` solo en la vista; verificar que inserción directa falla y la consulta pública funciona localmente.
+- [ ] 4.3 Actualizar publicación/lista/detalle para usar RPC y URL de foto pública, conservando contrato, cursor y respuestas; correr tests de servicios y rutas.
+- [ ] 4.4 Mantener rutas de confirmaciones alineadas con resultados de `confirm_report`; verificar estados HTTP y envelopes en pruebas.
 
-## 5. Security & Concurrency Verification (Pruebas Obligatorias)
+## 5. Pruebas de seguridad y concurrencia en Supabase local
 
-- [ ] 5.1 Test 1: Query `/rest/v1/reports?select=user_id` with publishable key and no session; verify the request fails with permission denied or returns an empty list.
-- [ ] 5.2 Test 2: Query confirmations with two distinct authenticated users; verify one user cannot read confirmations created by the other.
-- [ ] 5.3 Test 3: Attempt direct client `INSERT` into `public.reports` and `public.report_confirmations` with user session; verify RLS rejects the direct mutations.
-- [ ] 5.4 Test 4: Concurrently submit two identical confirmations for the same user on the same report; verify exactly one row is inserted and both requests receive valid responses.
-- [ ] 5.5 Test 5: Concurrently submit confirmations from three distinct users on a pending report; verify the transition to `citizen-verification` occurs exactly once and exactly three confirmation rows exist.
-- [ ] 5.6 Test 6: Call `confirm_report` RPC with unauthenticated / null session; verify the function raises unauthenticated error.
-- [ ] 5.7 Test 7: Concurrently submit two requests with the same `Idempotency-Key`; verify one processes and the other receives `409 PUBLICATION_IN_PROGRESS` with `Retry-After` header.
-- [ ] 5.8 Test 8: Run Supabase Security Advisor checks on tables, views, and functions; verify zero critical security warnings.
+- [ ] 5.1 Probar consulta directa a `/rest/v1/reports?select=user_id` con clave publicable y sin sesión; confirmar rechazo o lista vacía.
+- [ ] 5.2 Con dos usuarios autenticados, comprobar que cada persona solo lee sus propias confirmaciones.
+- [ ] 5.3 Probar `INSERT` directo de cliente en `reports` y `report_confirmations`; confirmar rechazo.
+- [ ] 5.4 Enviar dos confirmaciones concurrentes de la misma cuenta/reporte; comprobar una fila única y respuestas válidas.
+- [ ] 5.5 Enviar confirmaciones concurrentes de tres cuentas distintas a un reporte pendiente; comprobar tres filas y una sola transición a `citizen-verification`.
+- [ ] 5.6 Invocar `confirm_report` sin sesión; comprobar el error de autenticación.
+- [ ] 5.7 Reclamar concurrentemente la misma clave; comprobar un procesamiento y un `409 PUBLICATION_IN_PROGRESS` con `Retry-After`.
+- [ ] 5.8 Probar inserción directa en `reports` rechazada y `publish_report` con sesión y sin sesión; conservar los resultados reproducibles.
+- [ ] 5.9 Simular timeout tras el envío de `publish_report` y reintentar la misma clave; comprobar que se recupera el mismo reporte sin borrar fotos.
+- [ ] 5.10 Comprobar acceso anónimo a la copia pública y rechazo de acceso anónimo a la original privada.
+- [ ] 5.11 Hacer que cada script de integración rechace URLs distintas de `localhost` y `127.0.0.1`; probar la guardia sin conectarse a un entorno remoto.
+- [ ] 5.12 Revisar Security Advisor en Studio local y registrar hallazgos; no marcarlo completo si Studio local o el análisis no están disponibles.
 
-## Workflow follow-up
+## Seguimiento de equipo
 
-- Review proposal, specs, design, and tasks with teammate leads (Fran and Valen).
-- Review open decisions with Fran and Valen before merging to main.
-- Keep baseline contract checks passing (`npm run check:contracts`).
+- Revisar los DTO comunes y la integración de `Location.address` con Fran cuando se integre el PR #3.
+- Confirmar con Fran la presentación de copias públicas saneadas, los límites de carga, retención y estrategia futura de huérfanas.
+- Confirmar con Valen que la visión no requiere persistir fotos ni metadatos de análisis.
+- Confirmar el rol de Francisco y si requiere una revisión antes de integrar.
+- Ejecutar todas las verificaciones de seguridad solo en Supabase local; nunca contra producción.

@@ -17,7 +17,7 @@ export const REPORT_FIELDS_FIXTURES: readonly ReportFields[] = INITIAL_CATEGORIE
     : `Descripción sintética para revisar un reporte de ${category.label.toLowerCase()}.`,
   categoryId: category.id,
   severity: "medium",
-  location: { latitude: -32.9468, longitude: -60.6393 },
+  location: { latitude: -32.9468, longitude: -60.6393, address: { street: "Córdoba", number: 1250 } },
   reviewed: true,
 }));
 

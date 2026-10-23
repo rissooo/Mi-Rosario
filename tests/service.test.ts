@@ -1,14 +1,119 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { validateReport, validateReportList } from "../lib/contracts/validation";
+import type { ReportFields } from "../lib/contracts/reports";
+import { validateReport } from "../lib/contracts/validation";
 import {
   decodeCursor,
   encodeCursor,
   getReportDetailService,
   listReportsService,
   mapRowToReport,
+  publishReportService,
 } from "../lib/reports/service";
+
+const reservedReportId = "10000000-0000-4000-8000-000000000001";
+const idempotencyKey = "20000000-0000-4000-8000-000000000002";
+const publishFields: ReportFields = {
+  title: "Bache profundo en la calzada",
+  description: "Bache grande en el carril derecho.",
+  categoryId: "pothole",
+  severity: "high",
+  location: {
+    latitude: -32.9468,
+    longitude: -60.6393,
+    address: { street: "Córdoba", number: 1250 },
+  },
+  reviewed: true,
+};
+
+function createPublishForm(report: unknown = publishFields): FormData {
+  const form = new FormData();
+  form.set("report", typeof report === "string" ? report : JSON.stringify(report));
+  form.set("image", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])], "foto.jpg", {
+    type: "image/jpeg",
+  }));
+  return form;
+}
+
+function createPublishSupabase(options: {
+  claimResult?: unknown;
+  publishError?: { code?: string; message: string };
+  detailError?: boolean;
+} = {}) {
+  const rpcCalls: Array<{ name: string; params: unknown }> = [];
+  const uploadedPaths: string[] = [];
+  const removedPaths: string[] = [];
+  const queriedTables: string[] = [];
+  const reportRow = {
+    id: reservedReportId,
+    title: publishFields.title,
+    description: publishFields.description,
+    category_id: publishFields.categoryId,
+    severity: publishFields.severity,
+    status: "pending",
+    latitude: publishFields.location.latitude,
+    longitude: publishFields.location.longitude,
+    street: publishFields.location.address.street,
+    street_number: publishFields.location.address.number,
+    created_at: "2026-10-22T10:00:00.000Z",
+    updated_at: "2026-10-22T10:00:00.000Z",
+    resolved_at: null,
+    storage_path: `user-1/${reservedReportId}/original.jpg`,
+    mime_type: "image/jpeg",
+    byte_size: 12,
+    confirmation_count: 0,
+    threshold: 3,
+  };
+
+  const supabase = {
+    rpc: async (name: string, params: unknown) => {
+      rpcCalls.push({ name, params });
+      if (name === "claim_idempotency_key") {
+        return {
+          data: options.claimResult ?? { action: "CLAIMED", status: "in_progress", reportId: reservedReportId },
+          error: null,
+        };
+      }
+      if (name === "publish_report") {
+        if (options.publishError) return { data: null, error: options.publishError };
+        return { data: { success: true, action: "CREATED", reportId: reservedReportId }, error: null };
+      }
+      if (name === "fail_idempotency_key") return { data: { action: "FAILED", reportId: reservedReportId }, error: null };
+      throw new Error(`RPC no esperada: ${name}`);
+    },
+    from: (table: string) => {
+      queriedTables.push(table);
+      if (table !== "public_reports") throw new Error(`Consulta no esperada: ${table}`);
+      const query = {
+        select: () => query,
+        eq: () => query,
+        single: async () => options.detailError
+          ? { data: null, error: { message: "vista pública todavía no disponible" } }
+          : { data: reportRow, error: null },
+      };
+      return query;
+    },
+    storage: {
+      from: () => ({
+        upload: async (path: string) => {
+          uploadedPaths.push(path);
+          return { data: { path }, error: null };
+        },
+        remove: async (paths: string[]) => {
+          removedPaths.push(...paths);
+          return { data: paths, error: null };
+        },
+        createSignedUrls: async (paths: string[]) => ({
+          data: paths.map((path) => ({ path, signedUrl: "https://example.invalid/photo.jpg" })),
+          error: null,
+        }),
+      }),
+    },
+  } as unknown as SupabaseClient;
+
+  return { supabase, rpcCalls, uploadedPaths, removedPaths, queriedTables };
+}
 
 test("encodeCursor and decodeCursor round-trip faithfully", () => {
   const report = { id: "10000000-0000-4000-8000-000000000001", createdAt: "2026-10-22T12:00:00.000Z" };
@@ -161,6 +266,133 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
   if (response.result.data) {
     assert.deepEqual(response.result.data.items[0].location.address, { street: "Córdoba", number: 1250 });
   }
+});
+
+test("publishReportService parsea report como JSON y publica con el report_id reservado por la RPC", async () => {
+  const mock = createPublishSupabase();
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 201);
+  assert.ok(response.result.data);
+  assert.equal(response.result.data?.id, reservedReportId);
+  assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key", "publish_report"]);
+  assert.deepEqual(mock.uploadedPaths, [`user-1/${reservedReportId}/original.jpg`]);
+  assert.deepEqual(mock.queriedTables, ["public_reports"]);
+
+  const claimParams = mock.rpcCalls[0].params as Record<string, unknown>;
+  const publishParams = mock.rpcCalls[1].params as Record<string, unknown>;
+  assert.equal(claimParams.p_key, idempotencyKey);
+  assert.equal(claimParams.p_payload_hash, publishParams.p_payload_hash);
+  assert.equal(publishParams.p_street, "Córdoba");
+  assert.equal(publishParams.p_street_number, 1250);
+  assert.equal(publishParams.p_storage_path, `user-1/${reservedReportId}/original.jpg`);
+  assert.equal(publishParams.p_photo_public_path, `${reservedReportId}.jpg`);
+});
+
+test("publishReportService rechaza JSON mal formado antes de reclamar o subir", async () => {
+  const mock = createPublishSupabase();
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm("{"),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 400);
+  assert.equal(response.result.error?.code, "INVALID_JSON");
+  assert.deepEqual(mock.rpcCalls, []);
+  assert.deepEqual(mock.uploadedPaths, []);
+});
+
+test("publishReportService valida el contenido JSON del reporte antes de reclamar", async () => {
+  const mock = createPublishSupabase();
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm({ ...publishFields, title: "cort" }),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 422);
+  assert.equal(response.result.error?.code, "VALIDATION_ERROR");
+  assert.ok(response.result.error?.fieldErrors?.title);
+  assert.deepEqual(mock.rpcCalls, []);
+  assert.deepEqual(mock.uploadedPaths, []);
+});
+
+test("publishReportService reutiliza el report_id reservado en un reintento completado", async () => {
+  const mock = createPublishSupabase({
+    claimResult: { action: "COMPLETED", status: "completed", reportId: reservedReportId },
+  });
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 200);
+  assert.equal(response.result.data?.id, reservedReportId);
+  assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key"]);
+  assert.deepEqual(mock.uploadedPaths, []);
+});
+
+test("un rechazo definitivo antes del commit compensa la foto y marca la clave failed", async () => {
+  const mock = createPublishSupabase({ publishError: { code: "23514", message: "constraint violation" } });
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 500);
+  assert.deepEqual(mock.removedPaths, [`user-1/${reservedReportId}/original.jpg`]);
+  assert.deepEqual(mock.rpcCalls.map((call) => call.name), [
+    "claim_idempotency_key",
+    "publish_report",
+    "fail_idempotency_key",
+  ]);
+  assert.deepEqual(mock.rpcCalls[2].params, {
+    p_key: idempotencyKey,
+    p_report_id: reservedReportId,
+    p_payload_hash: mock.rpcCalls[1].params && (mock.rpcCalls[1].params as Record<string, unknown>).p_payload_hash,
+  });
+});
+
+test("un timeout de publish_report conserva la foto y no marca failed", async () => {
+  const mock = createPublishSupabase({ publishError: { code: "57014", message: "statement timeout" } });
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 500);
+  assert.deepEqual(mock.uploadedPaths, [`user-1/${reservedReportId}/original.jpg`]);
+  assert.deepEqual(mock.removedPaths, []);
+  assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key", "publish_report"]);
+});
+
+test("un error al preparar la respuesta después del commit no borra ni marca failed", async () => {
+  const mock = createPublishSupabase({ detailError: true });
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 500);
+  assert.equal(response.result.error?.code, "INTERNAL_ERROR");
+  assert.deepEqual(mock.removedPaths, []);
+  assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key", "publish_report"]);
 });
 
 test("getReportDetailService returns 404 for missing report", async () => {

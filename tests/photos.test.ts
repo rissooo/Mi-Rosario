@@ -98,6 +98,41 @@ test("uploadReportPhoto validates size, magic bytes and calls storage.upload", a
   );
 });
 
+test("reintentar la misma foto reutiliza la ruta y permite reemplazar el objeto existente", async () => {
+  const storedObjects = new Map<string, Uint8Array>();
+  const attempts: Array<{ path: string; alreadyExists: boolean; upsert: boolean }> = [];
+  const mockSupabase = {
+    storage: {
+      from: () => ({
+        upload: async (path: string, bytes: Uint8Array, options: { upsert?: boolean }) => {
+          const alreadyExists = storedObjects.has(path);
+          attempts.push({ path, alreadyExists, upsert: options.upsert === true });
+          storedObjects.set(path, new Uint8Array(bytes));
+          return { data: { path }, error: null };
+        },
+      }),
+    },
+  } as unknown as SupabaseClient;
+  const input = {
+    supabase: mockSupabase,
+    userId: "u-retry",
+    reportId: "r-reserved",
+    fileBytes: JPEG_HEADER,
+    declaredMimeType: "image/jpeg",
+  };
+
+  const firstAttempt = await uploadReportPhoto(input);
+  const retry = await uploadReportPhoto(input);
+
+  assert.equal(firstAttempt.storagePath, "u-retry/r-reserved/original.jpg");
+  assert.equal(retry.storagePath, firstAttempt.storagePath);
+  assert.equal(storedObjects.size, 1);
+  assert.deepEqual(attempts, [
+    { path: firstAttempt.storagePath, alreadyExists: false, upsert: true },
+    { path: firstAttempt.storagePath, alreadyExists: true, upsert: true },
+  ]);
+});
+
 test("compensateRemovePhoto calls storage.remove with the target path", async () => {
   let removedBucket = "";
   let removedPaths: string[] = [];

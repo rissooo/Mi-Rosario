@@ -8,6 +8,18 @@ import {
 export const REPORTS_STORAGE_BUCKET = "reports-originals";
 export const DEFAULT_SIGNED_URL_EXPIRES_IN_SECONDS = 3600; // 1 hour
 
+export class ReportPhotoError extends Error {
+  constructor(
+    message: string,
+    readonly kind: "validation" | "storage",
+    readonly definitive: boolean,
+    readonly apiCode?: "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE",
+  ) {
+    super(message);
+    this.name = "ReportPhotoError";
+  }
+}
+
 /**
  * Validates image content sniffing / magic bytes against allowed MIME types.
  * Rejects spoofed extensions and arbitrary files.
@@ -91,16 +103,31 @@ export async function uploadReportPhoto({
   declaredMimeType,
 }: UploadPhotoOptions): Promise<UploadPhotoResult> {
   if (fileBytes.byteLength > MAX_IMAGE_BYTES) {
-    throw new Error(`File size ${fileBytes.byteLength} exceeds maximum allowed of ${MAX_IMAGE_BYTES} bytes`);
+    throw new ReportPhotoError(
+      `File size ${fileBytes.byteLength} exceeds maximum allowed of ${MAX_IMAGE_BYTES} bytes`,
+      "validation",
+      true,
+      "PAYLOAD_TOO_LARGE",
+    );
   }
 
   const detectedMime = sniffImageMimeType(fileBytes);
   if (!detectedMime) {
-    throw new Error("File content is not a recognized or supported image format (JPEG, PNG, WebP required)");
+    throw new ReportPhotoError(
+      "File content is not a recognized or supported image format (JPEG, PNG, WebP required)",
+      "validation",
+      true,
+      "UNSUPPORTED_MEDIA_TYPE",
+    );
   }
 
   if (declaredMimeType && declaredMimeType !== detectedMime) {
-    throw new Error(`Declared MIME type ${declaredMimeType} does not match detected content ${detectedMime}`);
+    throw new ReportPhotoError(
+      `Declared MIME type ${declaredMimeType} does not match detected content ${detectedMime}`,
+      "validation",
+      true,
+      "UNSUPPORTED_MEDIA_TYPE",
+    );
   }
 
   const storagePath = getStoragePath(userId, reportId);
@@ -113,7 +140,10 @@ export async function uploadReportPhoto({
     });
 
   if (error) {
-    throw new Error(`Storage upload failed: ${error.message}`);
+    const status = Number((error as { status?: unknown; statusCode?: unknown }).statusCode ??
+      (error as { status?: unknown }).status);
+    const definitive = Number.isInteger(status) && status >= 400 && status < 500 && status !== 408;
+    throw new ReportPhotoError(`Storage upload failed: ${error.message}`, "storage", definitive);
   }
 
   return {

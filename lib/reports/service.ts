@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CategoryId } from "../contracts/categories";
-import type { ApiResult } from "../contracts/errors";
+import { ERROR_STATUS, type ApiResult } from "../contracts/errors";
 import {
   type Location,
   type Photo,
@@ -13,19 +12,23 @@ import {
   type UUID,
 } from "../contracts/reports";
 import {
+  parseReportJson,
+  validatePublicationHeaders,
   validatePublishReportRequest,
   validateReportListQuery,
 } from "../contracts/validation";
 import {
   claimIdempotencySlot,
-  completeIdempotencySlot,
   computePayloadHash,
   failIdempotencySlot,
+  publishReportSlot,
+  ReportRpcError,
 } from "./idempotency";
 import {
   compensateRemovePhoto,
   createBatchSignedUrls,
   DEFAULT_SIGNED_URL_EXPIRES_IN_SECONDS,
+  ReportPhotoError,
   uploadReportPhoto,
 } from "./photos";
 
@@ -133,8 +136,50 @@ export type PublishServiceResult = {
   retryAfter?: number;
 };
 
+function publicationError(
+  code: keyof typeof ERROR_STATUS,
+  message: string,
+  fieldErrors?: Record<string, string[]>,
+): PublishServiceResult {
+  return {
+    httpStatus: ERROR_STATUS[code],
+    result: { error: { code, message, ...(fieldErrors ? { fieldErrors } : {}) } },
+  };
+}
+
+function postCommitPublicationError(): PublishServiceResult {
+  return publicationError(
+    "INTERNAL_ERROR",
+    "El reporte quedó publicado, pero no se pudo preparar la respuesta. Reintentá con la misma clave.",
+  );
+}
+
+function failurePublicationError(error: unknown): PublishServiceResult {
+  if (error instanceof ReportPhotoError && error.kind === "validation") {
+    const code = error.apiCode ?? "UNSUPPORTED_MEDIA_TYPE";
+    return publicationError(code, "La imagen no cumple los requisitos de publicación.");
+  }
+
+  if (error instanceof ReportPhotoError && error.kind === "storage") {
+    return publicationError(
+      "STORAGE_UNAVAILABLE",
+      "No se pudo confirmar la carga de la fotografía. Reintentá con la misma clave.",
+    );
+  }
+
+  return publicationError(
+    "INTERNAL_ERROR",
+    "No se pudo confirmar la publicación. Reintentá con la misma clave.",
+  );
+}
+
+function getPublicPhotoPath(reportId: string, mimeType: Photo["mimeType"]): string {
+  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
+  return `${reportId}.${extension}`;
+}
+
 /**
- * Orchestrates report publication with idempotency, storage upload, and atomic database persistence.
+ * Publica reportes con idempotencia, carga de fotos y persistencia atómica.
  */
 export async function publishReportService({
   supabase,
@@ -150,31 +195,26 @@ export async function publishReportService({
   const reportPart = formData.get("report");
   const imagePart = formData.get("image");
 
-  if (!idempotencyKey) {
-    return {
-      httpStatus: 400,
-      result: {
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "El encabezado Idempotency-Key es obligatorio.",
-        },
-      },
-    };
+  const parsedHeaders = validatePublicationHeaders({ "Idempotency-Key": idempotencyKey });
+  if (!parsedHeaders.valid) {
+    return publicationError(parsedHeaders.error.code, parsedHeaders.error.message, parsedHeaders.error.fieldErrors);
   }
 
-  const parsedRequest = validatePublishReportRequest({
-    headers: { "Idempotency-Key": idempotencyKey },
-    report: reportPart,
-    image: imagePart,
-  });
+  if (typeof reportPart !== "string") {
+    return publicationError("VALIDATION_ERROR", "El campo report debe contener un objeto JSON.", {
+      report: ["Ingresá los datos del reporte como JSON."],
+    });
+  }
+
+  const parsedReport = parseReportJson(reportPart);
+  if (!parsedReport.valid) {
+    return publicationError(parsedReport.error.code, parsedReport.error.message, parsedReport.error.fieldErrors);
+  }
+
+  const parsedRequest = validatePublishReportRequest({ report: parsedReport.value, image: imagePart });
 
   if (!parsedRequest.valid) {
-    return {
-      httpStatus: 400,
-      result: {
-        error: parsedRequest.error,
-      },
-    };
+    return publicationError(parsedRequest.error.code, parsedRequest.error.message, parsedRequest.error.fieldErrors);
   }
 
   const { report: fields, image } = parsedRequest.value;
@@ -183,8 +223,13 @@ export async function publishReportService({
 
   const payloadHash = computePayloadHash(fields, imageBytes);
 
-  // 1. Claim or inspect idempotency slot
-  const slot = await claimIdempotencySlot(supabase, idempotencyKey, payloadHash);
+  // 1. Reclama la clave o recupera el resultado de una operación anterior.
+  let slot: Awaited<ReturnType<typeof claimIdempotencySlot>>;
+  try {
+    slot = await claimIdempotencySlot(supabase, parsedHeaders.value["Idempotency-Key"], payloadHash);
+  } catch (error: unknown) {
+    return failurePublicationError(error);
+  }
 
   if (slot.action === "CONFLICT") {
     return {
@@ -212,17 +257,18 @@ export async function publishReportService({
   }
 
   if (slot.action === "COMPLETED") {
-    // Replay existing report
     const existing = await getReportDetailService(supabase, slot.reportId);
+    if (existing.httpStatus !== 200 || !existing.result.data) return postCommitPublicationError();
     return {
       httpStatus: 200,
       result: existing.result,
     };
   }
 
-  // 2. Slot is freshly claimed (action === "CLAIMED")
-  const reportId = randomUUID();
+  const reportId = slot.reportId;
   let storagePath: string | null = null;
+  let photoUploaded = false;
+  let committed = false;
 
   try {
     const uploadRes = await uploadReportPhoto({
@@ -233,89 +279,57 @@ export async function publishReportService({
       declaredMimeType: image.type,
     });
     storagePath = uploadRes.storagePath;
+    photoUploaded = true;
 
-    // 3. Insert report into database
-    const street = (fields.location as { address?: { street: string; number: number | null } })?.address?.street ?? null;
-    const streetNumber = (fields.location as { address?: { street: string; number: number | null } })?.address?.number ?? null;
+    const published = await publishReportSlot(supabase, {
+      key: parsedHeaders.value["Idempotency-Key"],
+      payloadHash,
+      title: fields.title,
+      description: fields.description,
+      categoryId: fields.categoryId,
+      severity: fields.severity,
+      latitude: fields.location.latitude,
+      longitude: fields.location.longitude,
+      street: fields.location.address.street,
+      streetNumber: fields.location.address.number,
+      storagePath: uploadRes.storagePath,
+      photoPublicPath: getPublicPhotoPath(reportId, uploadRes.mimeType),
+      mimeType: uploadRes.mimeType,
+      byteSize: uploadRes.byteSize,
+    });
 
-    const { data: inserted, error: insertError } = await supabase
-      .from("reports")
-      .insert({
-        id: reportId,
-        user_id: userId,
-        title: fields.title,
-        description: fields.description,
-        category_id: fields.categoryId,
-        severity: fields.severity,
-        status: "pending",
-        latitude: fields.location.latitude,
-        longitude: fields.location.longitude,
-        street: street ?? "",
-        street_number: streetNumber,
-        storage_path: uploadRes.storagePath,
-        mime_type: uploadRes.mimeType,
-        byte_size: uploadRes.byteSize,
-      })
-      .select()
-      .single();
-
-    if (insertError || !inserted) {
-      throw new Error(`Database insert failed: ${insertError?.message ?? "unknown error"}`);
+    if (published && typeof published === "object" && "success" in published && published.success === false) {
+      throw new ReportRpcError("publish_report", { code: "23505", message: "Conflicto de idempotencia." });
     }
 
-    // 4. Mark idempotency slot completed
-    await completeIdempotencySlot(supabase, idempotencyKey, reportId);
+    if (!published || typeof published !== "object" || !("success" in published) || published.success !== true) {
+      return failurePublicationError(new Error("La respuesta de publish_report no confirma el resultado."));
+    }
 
-    // 5. Generate signed URL for presentation
-    const urls = await createBatchSignedUrls(supabase, [uploadRes.storagePath]);
-    const signed = urls.get(uploadRes.storagePath);
-    const expiresAt = signed?.expiresAt ?? new Date(Date.now() + 3600 * 1000).toISOString();
-    const photoUrl = signed?.url ?? "";
+    committed = true;
+    if (!("reportId" in published) || published.reportId !== reportId) return postCommitPublicationError();
 
-    const reportDto = mapRowToReport(
-      {
-        ...inserted,
-        confirmation_count: 0,
-        threshold: 3,
-      },
-      photoUrl,
-      expiresAt,
-    );
+    const publishedAction = "action" in published ? published.action : undefined;
+    const reportResponse = await getReportDetailService(supabase, reportId);
+    if (reportResponse.httpStatus !== 200 || !reportResponse.result.data) return postCommitPublicationError();
 
     return {
-      httpStatus: 201,
-      result: { data: reportDto },
+      httpStatus: publishedAction === "COMPLETED" ? 200 : 201,
+      result: reportResponse.result,
     };
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    if (committed) return postCommitPublicationError();
 
-    // Compensation logic: if image was uploaded but DB failed
-    if (storagePath) {
-      await compensateRemovePhoto(supabase, storagePath);
+    const definitive = (err instanceof ReportRpcError || err instanceof ReportPhotoError) && err.definitive;
+    if (definitive) {
+      if (photoUploaded && storagePath) await compensateRemovePhoto(supabase, storagePath);
+      try {
+        await failIdempotencySlot(supabase, parsedHeaders.value["Idempotency-Key"], reportId, payloadHash);
+      } catch {
+        // El bloqueo vence por sí mismo si la RPC de recuperación tampoco está disponible.
+      }
     }
-    await failIdempotencySlot(supabase, idempotencyKey);
-
-    if (errorMessage.includes("Storage upload failed")) {
-      return {
-        httpStatus: 503,
-        result: {
-          error: {
-            code: "STORAGE_UNAVAILABLE",
-            message: "No se pudo guardar la fotografía. Conservá el borrador y reintentá.",
-          },
-        },
-      };
-    }
-
-    return {
-      httpStatus: 500,
-      result: {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: errorMessage,
-        },
-      },
-    };
+    return failurePublicationError(err);
   }
 }
 

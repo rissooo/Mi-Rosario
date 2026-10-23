@@ -1,9 +1,9 @@
 import type { CategoryId } from "./categories";
 
-/** These aliases describe wire values; runtime validators enforce their format. */
+/** Estos alias describen valores que viajan por la red; los validadores en ejecución controlan su formato. */
 export type UUID = string;
 export type IsoDateTime = string;
-/** Human-readable street address; number is null where the place has no house number. */
+/** Dirección legible; number es null cuando el lugar no tiene altura. */
 export type Address = { street: string; number: number | null };
 export type Location = { latitude: number; longitude: number; address: Address };
 export type Severity = "low" | "medium" | "high";
@@ -18,7 +18,7 @@ export const MVP_REPORT_STAGES = ["pending", "citizen-verification"] as const;
 export const FUTURE_INSTITUTIONAL_STAGES = ["municipal-verification", "resolved"] as const;
 export type MvpReportStage = (typeof MVP_REPORT_STAGES)[number];
 export type FutureInstitutionalStage = (typeof FUTURE_INSTITUTIONAL_STAGES)[number];
-/** Four-stage vocabulary; the institutional values are not operational MVP states. */
+/** Vocabulario de cuatro etapas; los valores institucionales no son estados operativos del MVP. */
 export type ReportStage = MvpReportStage | FutureInstitutionalStage;
 export const REPORT_STAGES = [...MVP_REPORT_STAGES, ...FUTURE_INSTITUTIONAL_STAGES] as const;
 export const STAGE_LABELS: Readonly<Record<ReportStage, string>> = {
@@ -28,14 +28,14 @@ export const STAGE_LABELS: Readonly<Record<ReportStage, string>> = {
   resolved: "Resuelto",
 };
 
-/** Initial backend policy, not an authoritative browser-side transition rule. */
+/** Política inicial del backend, no una regla de transición que defina el navegador. */
 export const INITIAL_CONFIRMATION_THRESHOLD = 3;
 export const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export type ImageMimeType = (typeof IMAGE_MIME_TYPES)[number];
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_MULTIPART_BYTES = MAX_IMAGE_BYTES + 64 * 1024;
 export const MAX_JSON_BYTES = 16 * 1024;
-/** Provisional title limits: for contract evaluation, not approved production policy. */
+/** Límites provisorios del título: para evaluar el contrato, no son una política de producción aprobada. */
 export const PROVISIONAL_TITLE_LIMITS = { min: 5, max: 120 } as const;
 export const DESCRIPTION_LIMITS = { min: 10, max: 1000 } as const;
 export const STREET_LIMITS = { min: 2, max: 80 } as const;
@@ -49,10 +49,10 @@ export type ReportFields = {
   location: Location;
   reviewed: true;
 };
-/** Serialize report as JSON and image as a file in multipart FormData. */
+/** Serializá el reporte como JSON y la imagen como archivo en un FormData multipart. */
 export type PublishReportRequest = { report: ReportFields; image: File };
 export type PublicationHeaders = { "Idempotency-Key": UUID };
-/** Presentation resource only; never a private original object reference. */
+/** Solo un recurso de presentación; nunca una referencia al objeto original privado. */
 export type Photo = { id: UUID; url: string; expiresAt: IsoDateTime; mimeType: ImageMimeType; byteSize: number };
 export type CitizenVerification = {
   confirmationCount: number;

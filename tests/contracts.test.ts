@@ -23,7 +23,7 @@ function cursorFor(filters: object = {}, overrides: object = {}) {
   return Buffer.from(JSON.stringify({ version: 1, createdAt: report.createdAt, id: report.id, filters, ...overrides })).toString("base64url");
 }
 
-test("the initial active catalog has exactly the four stable IDs and labels", () => {
+test("el catálogo activo inicial tiene exactamente los cuatro IDs estables y sus etiquetas", () => {
   assert.deepEqual(INITIAL_CATEGORIES.map(({ id }) => id), ["pothole", "missing-light", "damaged-sidewalk", "faulty-traffic-light"]);
   assert.deepEqual(INITIAL_CATEGORIES.map(({ label }) => label), ["Baches", "Falta de luz", "Veredas dañadas", "Semáforos defectuosos"]);
   for (const item of INITIAL_CATEGORIES) {
@@ -36,13 +36,13 @@ test("the initial active catalog has exactly the four stable IDs and labels", ()
 });
 
 for (const candidate of REPORT_FIELDS_FIXTURES) {
-  test(`manual fields and public detail conform for ${candidate.categoryId}`, () => {
+  test(`los campos manuales y el detalle público son válidos para ${candidate.categoryId}`, () => {
     assert.equal(validateReportFields(candidate).valid, true);
     assert.equal(validateReport(REPORT_FIXTURES.find((item) => item.categoryId === candidate.categoryId)).valid, true);
   });
 }
 
-test("all required publication fields are checked, including reviewed acknowledgement", () => {
+test("se revisan todos los campos obligatorios de publicación, incluida la confirmación de revisión", () => {
   for (const key of Object.keys(fields)) {
     const missing: Record<string, unknown> = { ...fields }; delete missing[key];
     assert.equal(validateReportFields(missing).valid, false, key);
@@ -56,7 +56,7 @@ test("all required publication fields are checked, including reviewed acknowledg
   assert.equal(validateReportFields({ ...fields, location: { ...fields.location, accuracy: 1 } }).valid, false);
 });
 
-test("three-level severity criteria are shared; uncertain AI is allowed but publication requires a choice", () => {
+test("los criterios de gravedad de tres niveles son compartidos; se acepta una IA sin certeza, pero publicar exige elegir", () => {
   assert.deepEqual(Object.keys(SEVERITY_DETAILS), ["low", "medium", "high"]);
   assert.equal(SEVERITY_DETAILS.high.description, "Riesgo importante para personas o vehículos.");
   for (const severity of ["low", "medium", "high"]) assert.equal(validateReportFields({ ...fields, severity }).valid, true);
@@ -66,7 +66,7 @@ test("three-level severity criteria are shared; uncertain AI is allowed but publ
   assert.equal(VERIFICATION_FIXTURES[3].institutionalVerification.verifiedAt, null);
 });
 
-test("text is trimmed with Unicode boundaries; title limits are provisional", () => {
+test("el texto se recorta respetando Unicode; los límites del título son provisorios", () => {
   const parsed = validateReportFields({ ...fields, title: "  Cinco  ", description: "  Diez letras válidas.  " });
   assert.equal(parsed.valid, true);
   if (parsed.valid) { assert.equal(parsed.value.title, "Cinco"); assert.equal(parsed.value.description, "Diez letras válidas."); }
@@ -76,7 +76,7 @@ test("text is trimmed with Unicode boundaries; title limits are provisional", ()
   for (const length of [9, 1001]) assert.equal(validateReportFields({ ...fields, description: "a".repeat(length) }).valid, false);
 });
 
-test("coordinates reject non-finite numbers, strings, out-of-range values and missing keys", () => {
+test("las coordenadas rechazan números no finitos, textos, valores fuera de rango y claves faltantes", () => {
   const address = fields.location.address;
   for (const latitude of [NaN, Infinity, -91, 91, "-32.9", null, undefined]) {
     assert.equal(validateReportFields({ ...fields, location: { latitude, longitude: 0, address } }).valid, false);
@@ -85,7 +85,7 @@ test("coordinates reject non-finite numbers, strings, out-of-range values and mi
   assert.equal(validateReportFields({ ...fields, location: { latitude: -90, longitude: 180, address } }).valid, true);
 });
 
-test("location requires a street address with an optional house number", () => {
+test("la ubicación exige una dirección con calle y altura opcional", () => {
   const withAddress = (address: unknown) => ({ ...fields, location: { ...fields.location, address } });
   assert.equal(validateReportFields(withAddress({ street: "Córdoba", number: 1250 })).valid, true);
   assert.equal(validateReportFields(withAddress({ street: "Parque Independencia", number: null })).valid, true);
@@ -107,13 +107,13 @@ test("location requires a street address with an optional house number", () => {
   assert.equal(validateReport(report).valid, true);
 });
 
-test("published street is trimmed like title and description", () => {
+test("a la calle publicada se le quitan los espacios sobrantes, igual que al título y la descripción", () => {
   const parsed = validateReportFields({ ...fields, location: { ...fields.location, address: { street: "  Córdoba  ", number: 1250 } } });
   assert.equal(parsed.valid, true);
   if (parsed.valid) assert.deepEqual(parsed.value.location.address, { street: "Córdoba", number: 1250 });
 });
 
-test("all AI examples are valid nullable suggestions, including insufficient traffic-light evidence", () => {
+test("todos los ejemplos de IA son sugerencias válidas que pueden ser nulas, incluida la evidencia insuficiente de semáforos", () => {
   for (const item of SUGGESTION_FIXTURES) assert.equal(validateAnalyzeImageResponse(item).valid, true);
   const uncertain = SUGGESTION_FIXTURES.at(-1)!;
   assert.equal(uncertain.suggestion.categoryId, null);
@@ -130,12 +130,12 @@ test("all AI examples are valid nullable suggestions, including insufficient tra
   }
 });
 
-test("editing an AI suggestion creates valid manual fields without executing a UI or provider", () => {
+test("editar una sugerencia de IA produce campos manuales válidos sin ejecutar interfaz ni proveedor", () => {
   const suggestion = SUGGESTION_FIXTURES[0].suggestion;
   assert.equal(validateReportFields({ ...fields, title: suggestion.title, severity: "high", reviewed: true }).valid, true);
 });
 
-test("UUID and UTC timestamp format validation rejects malformed values and calendar rollover", () => {
+test("la validación de UUID y fechas UTC rechaza valores mal formados y desbordes del calendario", () => {
   assert.equal(validateUuid(report.id).valid, true);
   for (const id of ["report-1", "00000000-0000-0000-0000-000000000000", null, 10]) assert.equal(validateUuid(id).valid, false);
   assert.equal(validateReport({ ...report, createdAt: "2026-02-30T00:00:00.000Z" }).valid, false);
@@ -144,7 +144,7 @@ test("UUID and UTC timestamp format validation rejects malformed values and cale
   assert.equal(validateReport({ ...report, createdAt: "2026-10-22T12:00:00Z", updatedAt: "2026-10-22T12:00:00.001Z" }).valid, true);
 });
 
-test("publication header and original file metadata contract requires one File and reviewed fields", () => {
+test("el contrato del header de publicación y los metadatos del original exige un File y campos revisados", () => {
   assert.equal(validatePublicationHeaders({ "Idempotency-Key": report.id }).valid, true);
   assert.equal(validatePublicationHeaders({ "Idempotency-Key": "bad" }).valid, false);
   assert.equal(validatePublicationHeaders({}).valid, false);
@@ -159,7 +159,7 @@ test("publication header and original file metadata contract requires one File a
   assert.equal(validatePublishReportRequest({ report: fields, image: new File([new Uint8Array(MAX_IMAGE_BYTES + 1)], "large.jpg", { type: "image/jpeg" }) }).valid, false);
 });
 
-test("JSON parsing distinguishes syntax, size and field errors", () => {
+test("el parseo de JSON distingue errores de sintaxis, de tamaño y de campos", () => {
   assert.equal(parseReportJson(JSON.stringify(fields)).valid, true);
   for (const [source, code] of [["{", "INVALID_JSON"], [" ".repeat(16385), "PAYLOAD_TOO_LARGE"], ['{"title":1}', "VALIDATION_ERROR"]]) {
     const parsed = parseReportJson(source); assert.equal(parsed.valid, false);
@@ -167,7 +167,7 @@ test("JSON parsing distinguishes syntax, size and field errors", () => {
   }
 });
 
-test("verification facts validate below/at threshold and a backend-returned threshold of five", () => {
+test("los datos de verificación validan por debajo del umbral, en el umbral y con un umbral de cinco devuelto por el backend", () => {
   for (const item of VERIFICATION_FIXTURES) assert.equal(validateReport(item).valid, true);
   const facts = VERIFICATION_FIXTURES[1].citizenVerification;
   for (const threshold of [null, 0, -1, 1.5, "3"]) assert.equal(validateCitizenVerification({ ...facts, threshold }).valid, false);
@@ -176,7 +176,7 @@ test("verification facts validate below/at threshold and a backend-returned thre
   assert.equal(validateReport({ ...report, status: "citizen-verification" }).valid, false);
 });
 
-test("public DTOs reject private fields and institution data in the MVP", () => {
+test("los DTO públicos rechazan campos privados y datos institucionales en el MVP", () => {
   for (const key of ["authorId", "email", "objectPath", "publicationState"]) assert.equal(validateReport({ ...report, [key]: "private" }).valid, false);
   assert.equal(validatePhoto({ ...report.photo, objectPath: "private/original.jpg" }).valid, false);
   assert.equal(validatePhoto({ ...report.photo, url: "javascript:alert(1)" }).valid, false);
@@ -188,14 +188,14 @@ test("public DTOs reject private fields and institution data in the MVP", () => 
   assert.deepEqual(REPORT_STAGES, ["pending", "citizen-verification", "municipal-verification", "resolved"]);
 });
 
-test("every required report key is checked", () => {
+test("se revisa cada clave obligatoria del reporte", () => {
   for (const key of Object.keys(report)) {
     const missing: Record<string, unknown> = { ...report }; delete missing[key];
     assert.equal(validateReport(missing).valid, false, key);
   }
 });
 
-test("private confirmation state shapes cover eligible, author and existing-confirmation examples", () => {
+test("las formas del estado privado de confirmación cubren los casos habilitado, autor y confirmación existente", () => {
   for (const item of MY_CONFIRMATION_FIXTURES) assert.equal(validateMyConfirmation(item).valid, true);
   assert.equal(validateConfirmReportRequest({}).valid, true);
   assert.equal(validateConfirmReportRequest({ userId: report.id }).valid, false);
@@ -207,7 +207,7 @@ test("private confirmation state shapes cover eligible, author and existing-conf
   assert.equal(validateConfirmationResult(MY_CONFIRMATION_FIXTURES[2]).valid, true);
 });
 
-test("documented publication cases have valid envelopes and codes; no publication service is run", () => {
+test("los casos de publicación documentados tienen sobres y códigos válidos; no se ejecuta ningún servicio de publicación", () => {
   for (const item of PUBLICATION_CASES) {
     assert.equal(validateApiResult(item.response, validateReport).valid, true, item.name);
     if (item.response.error) assert.equal(ERROR_STATUS[item.response.error.code], item.status);
@@ -215,7 +215,7 @@ test("documented publication cases have valid envelopes and codes; no publicatio
   assert.equal(PUBLICATION_CASES[0].response.data?.id, PUBLICATION_CASES[1].response.data?.id);
 });
 
-test("documented confirmation cases have valid wire shapes, not database concurrency evidence", () => {
+test("los casos de confirmación documentados tienen formas válidas, no son evidencia de concurrencia en la base de datos", () => {
   for (const item of CONFIRMATION_CASES) {
     assert.equal(validateApiResult(item.response, (value) => validateConfirmationResult(value, { allowInstitutionalSimulation: item.simulation === true })).valid, true, item.name);
     if (item.response.error) assert.equal(ERROR_STATUS[item.response.error.code], item.status);
@@ -224,7 +224,7 @@ test("documented confirmation cases have valid wire shapes, not database concurr
   }
 });
 
-test("fixture collections contain no shared mutable object references", () => {
+test("las colecciones de fixtures no comparten referencias a objetos mutables", () => {
   const roots = {
     REPORT_FIELDS_FIXTURES, REPORT_FIXTURES, VERIFICATION_FIXTURES,
     INSTITUTIONAL_SIMULATIONS, SUGGESTION_FIXTURES, EMPTY_LIST_FIXTURE,
@@ -241,7 +241,7 @@ test("fixture collections contain no shared mutable object references", () => {
   visit(roots, "fixtures");
 });
 
-test("editing source examples does not alter other scenarios or their nested values", () => {
+test("editar los ejemplos de origen no altera otros escenarios ni sus valores anidados", () => {
   const before = cloneFixture({ reports: REPORT_FIXTURES, verification: VERIFICATION_FIXTURES,
     simulations: INSTITUTIONAL_SIMULATIONS, list: REPORT_LIST_FIXTURE,
     confirmations: MY_CONFIRMATION_FIXTURES, publications: PUBLICATION_CASES,
@@ -264,7 +264,7 @@ test("editing source examples does not alter other scenarios or their nested val
   }
 });
 
-test("consumers can clone a fixture for independent editable drafts", () => {
+test("los consumidores pueden clonar un fixture para tener borradores editables independientes", () => {
   const first = cloneFixture(report);
   const second = cloneFixture(report);
   first.location.latitude = 88;
@@ -277,7 +277,7 @@ test("consumers can clone a fixture for independent editable drafts", () => {
   assert.equal(SUGGESTION_FIXTURES.at(-1)!.suggestion.warnings.length, 1);
 });
 
-test("Gemini failure, unavailable and timeout fixtures match error envelopes without provider calls", () => {
+test("los fixtures de falla, no disponibilidad y tiempo agotado de Gemini coinciden con los sobres de error sin llamar al proveedor", () => {
   assert.deepEqual(ANALYSIS_ERROR_CASES.map((item) => item.response.error?.code), ["ANALYSIS_FAILED", "ANALYSIS_UNAVAILABLE", "ANALYSIS_TIMEOUT"]);
   assert.deepEqual(ANALYSIS_ERROR_CASES.map((item) => item.status), [502, 503, 504]);
   for (const item of ANALYSIS_ERROR_CASES) {
@@ -289,7 +289,7 @@ test("Gemini failure, unavailable and timeout fixtures match error envelopes wit
   }
 });
 
-test("institutional confirmation states require explicit future-simulation validation", () => {
+test("los estados institucionales de confirmación requieren validación explícita de simulación futura", () => {
   assert.deepEqual(MVP_REPORT_STAGES, ["pending", "citizen-verification"]);
   assert.deepEqual(FUTURE_INSTITUTIONAL_STAGES, ["municipal-verification", "resolved"]);
   for (const status of FUTURE_INSTITUTIONAL_STAGES) {
@@ -302,7 +302,7 @@ test("institutional confirmation states require explicit future-simulation valid
   }
 });
 
-test("error and success envelopes are exclusive and reject additional/private fields", () => {
+test("los sobres de error y de éxito son excluyentes y rechazan campos adicionales o privados", () => {
   assert.equal(validateApiResult({ data: report }, validateReport).valid, true);
   assert.equal(validateApiResult({ error: { code: "REPORT_NOT_FOUND", message: "No se encontró el reporte." } }, validateReport).valid, true);
   for (const candidate of [{}, { data: report, error: {} }, { data: report, debug: "private" }]) assert.equal(validateApiResult(candidate, validateReport).valid, false);
@@ -311,7 +311,7 @@ test("error and success envelopes are exclusive and reject additional/private fi
   assert.equal(validateApiError({ code: "VALIDATION_ERROR", message: "Revisá los datos.", fieldErrors: { title: ["Ingresá un título."] } }).valid, true);
 });
 
-test("list query parsing validates parameters, repeated keys and geometric bounds", () => {
+test("el parseo de la consulta de lista valida parámetros, claves repetidas y límites geométricos", () => {
   const parsed = parseReportListQuery(new URLSearchParams("categoryId=pothole&bbox=-61,-33,-60,-32&limit=10"));
   assert.equal(parsed.valid, true);
   if (parsed.valid) assert.equal(parsed.value.limit, 10);
@@ -321,14 +321,14 @@ test("list query parsing validates parameters, repeated keys and geometric bound
   }
 });
 
-test("opaque cursor validation binds version, last tuple and filters", () => {
+test("la validación del cursor opaco vincula la versión, la última tupla y los filtros", () => {
   assert.equal(validateReportListQuery({ cursor: cursorFor() }).valid, true);
   assert.equal(validateReportListQuery({ categoryId: "pothole", cursor: cursorFor({ categoryId: "pothole" }) }).valid, true);
   assert.equal(validateReportListQuery({ categoryId: "missing-light", cursor: cursorFor({ categoryId: "pothole" }) }).valid, false);
   for (const cursor of ["bad!", "x".repeat(4097), cursorFor({}, { version: 2 }), cursorFor({}, { id: "bad" })]) assert.equal(validateReportListQuery({ cursor }).valid, false);
 });
 
-test("equivalent numeric bounding boxes use a canonical form and the same cursor", () => {
+test("los bounding boxes numéricamente equivalentes usan una forma canónica y el mismo cursor", () => {
   const forms = ["0,0,1,1", "0.0,0.00,1.0,1.00", "-0,+0,1e0,1", " 0 , 0 , 1 , 1 "];
   for (const bound of forms) for (const requested of forms) {
     const input = { bbox: requested, cursor: cursorFor({ bbox: bound }) };
@@ -343,7 +343,7 @@ test("equivalent numeric bounding boxes use a canonical form and the same cursor
   assert.equal(validateReportList({ items: [], nextCursor: cursorFor({ bbox: forms[2] }) }).valid, true);
 });
 
-test("bbox normalization preserves range, filter-binding and cursor validation", () => {
+test("la normalización del bbox conserva el rango, la vinculación con los filtros y la validación del cursor", () => {
   for (const bbox of ["0,0,Infinity,1", "0,0,NaN,1", "0,0,,1", "0,0,0,1", "0,0,1,0", "-181,0,1,1", "0,-91,1,1", "0,0,181,1", "0,0,1,91", "0,0,1", "0,0,1,1,2"]) {
     assert.equal(validateReportListQuery({ bbox }).valid, false, bbox);
     assert.equal(validateReportListQuery({ bbox: "0,0,1,1", cursor: cursorFor({ bbox }) }).valid, false, bbox);
@@ -356,7 +356,7 @@ test("bbox normalization preserves range, filter-binding and cursor validation",
   assert.equal(parseReportListQuery(new URLSearchParams("bbox=0,0,1,1&bbox=0.0,0,1,1")).valid, false);
 });
 
-test("list envelopes include valid public reports, nextCursor and empty examples", () => {
+test("los sobres de lista incluyen reportes públicos válidos, nextCursor y ejemplos vacíos", () => {
   assert.equal(validateReportList(EMPTY_LIST_FIXTURE).valid, true);
   assert.equal(validateReportList(REPORT_LIST_FIXTURE).valid, true);
   assert.equal(validateReportList({ items: [report] }).valid, false);

@@ -3,15 +3,15 @@
 ## 1. Esquema y Storage
 
 - [ ] 1.1 Ajustar migración de `reports` para estados MVP, threshold y count por reporte, validación de calle/número y rutas original/pública; verificar DDL e índices contra el esquema esperado.
-- [ ] 1.2 Configurar buckets privado/público con límites MIME/tamaño, política de carga pública ligada a clave propia activa y borrado de original solo antes de publicar; verificar políticas en Supabase local.
-- [ ] 1.3 Asegurar RLS de `reports`, confirmaciones e idempotencia, revocar acceso directo y otorgar `SELECT` solo a la vista pública; inspeccionar roles/policies en Supabase local.
-- [ ] 1.4 Crear `public_reports` sin identidad, ruta privada, MIME, tamaño ni campos institucionales, y con solo estados MVP; probar columnas y permisos con `anon` y `authenticated` locales.
+- [ ] 1.2 Configurar buckets privado/público con límites MIME/tamaño, política de carga pública ligada a clave propia activa y borrado de original solo antes de publicar; verificar políticas en el proyecto Supabase de pruebas.
+- [ ] 1.3 Asegurar RLS de `reports`, confirmaciones e idempotencia, revocar acceso directo y otorgar `SELECT` solo a la vista pública; inspeccionar roles/policies en el proyecto de pruebas.
+- [ ] 1.4 Crear `public_reports` sin identidad, ruta privada, MIME, tamaño ni campos institucionales, y con solo estados MVP; probar columnas y permisos con `anon` y `authenticated` en el proyecto de pruebas.
 
 ## 2. Idempotencia y publicación transaccional
 
-- [ ] 2.1 Ajustar `idempotency_keys` para reservar y guardar `report_id` sin FK que impida reservar antes de insertar el reporte; verificar constraints e índices en Postgres local.
-- [ ] 2.2 Rehacer `claim_idempotency_key` con `auth.uid()`, `SECURITY DEFINER`, `search_path` vacío, permisos solo `authenticated`, RLS activa y bloqueo fijo de tres minutos; probar claims y carreras en Postgres local.
-- [ ] 2.3 Implementar `publish_report` y `fail_idempotency_key` con bloqueo de clave, validaciones de usuario/hash y actualización atómica; probar publicación, replay, propiedad y rollback en Postgres local.
+- [ ] 2.1 Ajustar `idempotency_keys` para reservar y guardar `report_id` sin FK que impida reservar antes de insertar el reporte; verificar constraints e índices en el proyecto de pruebas.
+- [ ] 2.2 Rehacer `claim_idempotency_key` con `auth.uid()`, `SECURITY DEFINER`, `search_path` vacío, permisos solo `authenticated`, RLS activa y bloqueo fijo de tres minutos; probar claims y carreras en el proyecto de pruebas.
+- [ ] 2.3 Implementar `publish_report` y `fail_idempotency_key` con bloqueo de clave, validaciones de usuario/hash y actualización atómica; probar publicación, replay, propiedad y rollback en el proyecto de pruebas.
 - [ ] 2.4 Cambiar el servicio para publicar por RPC y compensar solo ante errores definitivos pre-commit; probar reintento con `report_id` estable y conservar fotos ante timeout simulado.
 
 ## 3. Fotos y mapeo de DTOs
@@ -24,12 +24,12 @@
 
 ## 4. Confirmaciones y rutas
 
-- [ ] 4.1 Actualizar `confirm_report` para leer el threshold del reporte, mantener el count bajo lock y quitar `get_confirmation_threshold()`; probar duplicado, autoría y precedencia de errores contra Postgres local.
-- [ ] 4.2 Implementar RLS y proyección pública conforme a la spec, incluyendo `REVOKE ALL` en `reports` y `GRANT SELECT` solo en la vista; verificar que inserción directa falla y la consulta pública funciona localmente.
+- [ ] 4.1 Actualizar `confirm_report` para leer el threshold del reporte, mantener el count bajo lock y quitar `get_confirmation_threshold()`; probar duplicado, autoría y precedencia de errores en el proyecto de pruebas.
+- [ ] 4.2 Implementar RLS y proyección pública conforme a la spec, incluyendo `REVOKE ALL` en `reports` y `GRANT SELECT` solo en la vista; verificar que inserción directa falla y la consulta pública funciona en el proyecto de pruebas.
 - [ ] 4.3 Actualizar publicación/lista/detalle para usar RPC y URL de foto pública, conservando contrato, cursor y respuestas; correr tests de servicios y rutas.
 - [ ] 4.4 Mantener rutas de confirmaciones alineadas con resultados de `confirm_report`; verificar estados HTTP y envelopes en pruebas.
 
-## 5. Pruebas de seguridad y concurrencia en Supabase local
+## 5. Pruebas de seguridad y concurrencia en Supabase de pruebas
 
 - [ ] 5.1 Probar consulta directa a `/rest/v1/reports?select=user_id` con clave publicable y sin sesión; confirmar rechazo o lista vacía.
 - [ ] 5.2 Con dos usuarios autenticados, comprobar que cada persona solo lee sus propias confirmaciones.
@@ -41,8 +41,8 @@
 - [ ] 5.8 Probar inserción directa en `reports` rechazada y `publish_report` con sesión y sin sesión; conservar los resultados reproducibles.
 - [ ] 5.9 Simular timeout tras el envío de `publish_report` y reintentar la misma clave; comprobar que se recupera el mismo reporte sin borrar fotos.
 - [ ] 5.10 Comprobar acceso anónimo a la copia pública y rechazo de acceso anónimo a la original privada.
-- [ ] 5.11 Hacer que cada script de integración rechace URLs distintas de `localhost` y `127.0.0.1`; probar la guardia sin conectarse a un entorno remoto.
-- [ ] 5.12 Revisar Security Advisor en Studio local y registrar hallazgos; no marcarlo completo si Studio local o el análisis no están disponibles.
+- [ ] 5.11 Hacer que el script acepte solo el ref de pruebas `rsvtchefnydihokivaqg`, exija `TEST_PROJECT_CONFIRMED=true` y rechace claves `service_role`/`sb_secret`; probar la guardia sin ejecutar pruebas contra producción.
+- [ ] 5.12 Revisar Security Advisor en el panel del proyecto de pruebas y registrar hallazgos; no marcarlo completo sin evidencia del análisis.
 
 ## Seguimiento de equipo
 
@@ -50,4 +50,4 @@
 - Confirmar con Fran la presentación de copias públicas saneadas, los límites de carga, retención y estrategia futura de huérfanas.
 - Confirmar con Valen que la visión no requiere persistir fotos ni metadatos de análisis.
 - Revisar con Fran (también llamado Francisco) las decisiones de Storage y el orden de integración del PR #3.
-- Ejecutar todas las verificaciones de seguridad solo en Supabase local; nunca contra producción.
+- Ejecutar verificaciones de seguridad solo en el proyecto de pruebas `rsvtchefnydihokivaqg`; nunca contra producción.

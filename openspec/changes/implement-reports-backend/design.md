@@ -6,7 +6,7 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 
 ## Objetivos / Fuera de alcance
 
-**Objetivos:** publicación recuperable y transaccional; separación entre original privada y copia pública saneada; exposición pública mínima; confirmación atómica bajo el umbral efectivo del reporte; verificación reproducible solo en Supabase local.
+**Objetivos:** publicación recuperable y transaccional; separación entre original privada y copia pública saneada; exposición pública mínima; confirmación atómica bajo el umbral efectivo del reporte; verificación reproducible en el proyecto Supabase de pruebas `rsvtchefnydihokivaqg`, nunca en producción.
 
 **Fuera de alcance:** operaciones institucionales, moderación municipal, IA/visión, cambios a contratos compartidos, cambios al cliente Supabase compartido, limpieza automática de huérfanas y cualquier operación contra una base remota.
 
@@ -38,7 +38,7 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 
 - `reports.status` acepta solo `pending` y `citizen-verification` en el MVP. Tiene `confirmation_threshold` por fila con default 3 y `confirmation_count` mantenido por `confirm_report` bajo el lock de la fila. Las columnas `street` y `street_number` validan calle de 2 a 80 caracteres sin espacios exteriores y número opcional de 1 a 99999. Se guardan por separado la ruta privada original y `photo_public_path`.
 - Se revocan todos los privilegios directos sobre `reports` a `anon` y `authenticated`; solo `public_reports` recibe `SELECT`. No hay políticas de mutación de clientes. La vista incluye solo estados MVP y expone `photo_public_path`, `confirmation_count`, `confirmation_threshold`, dirección y campos públicos. Excluye `user_id`, ruta original, MIME, tamaño y campos institucionales `resolved`/`resolved_at`.
-- La vista usa `security_invoker = false` con privilegios de propietario acotados para proyectar filas, y recibe permisos `SELECT` solo para `anon` y `authenticated`. Revisar en Supabase local el propietario de la vista y sus permisos efectivos.
+- La vista usa `security_invoker = false` con privilegios de propietario acotados para proyectar filas, y recibe permisos `SELECT` solo para `anon` y `authenticated`. Revisar en el proyecto de pruebas el propietario de la vista y sus permisos efectivos.
 - `confirm_report` toma usuario de `auth.uid()`, usa `SECURITY DEFINER`, `search_path` vacío y `FOR UPDATE`; no acepta conteos del cliente. Lee el umbral de la fila, inserta con unicidad por reporte/usuario y actualiza el conteo/transición dentro de la operación.
 - La precedencia es: validar existencia y autoría; si ya hay una confirmación de esa cuenta, responder `ALREADY_CONFIRMED` idempotentemente; si no existe y la etapa ya no admite nuevas confirmaciones, responder `REPORT_RESOLVED`; en caso contrario insertar y contar. Así, el replay existente se distingue de un intento nuevo en una etapa cerrada.
 - Se elimina `get_confirmation_threshold()` inmutable. El cliente no puede escribir `confirmation_count` ni cambiar el umbral.
@@ -49,23 +49,60 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 - La rama recibe la dirección mediante un adaptador pequeño local en `lib/reports/`, con tipo local `{ street, number }`; no se modifica `lib/contracts/`. Lista y detalle siempre devuelven `location.address`, sin cast ni calle vacía de fallback. Al integrarse el PR #3, el único archivo que debe reemplazarse para ese límite es el adaptador.
 - Se conserva la forma de cursor `{ version, createdAt, id, filters }`, el orden estable y los filtros existentes. `resolvedAt` del DTO se resuelve como `null` en el MVP; no se lee ni publica `resolved_at`.
 
-### 6. Migraciones y verificación local
+### 6. Migraciones y proyecto de pruebas en la nube
 
-- Como las migraciones `20261023000001` a `20261023000005` no fueron aplicadas en ningún entorno, se editan en su lugar. Si antes de editarlas aparece evidencia de aplicación, detener el bloque y avisar para crear migraciones nuevas.
-- No ejecutar `supabase link`, `db push` ni `reset --linked`. Usar únicamente Supabase local si Docker y Supabase CLI ya funcionan; no instalar herramientas. Los scripts de integración deben abortar salvo que la URL configurada sea `localhost` o `127.0.0.1`.
-- Si no existe entorno local, quedan sin marcar las pruebas que dependen de Postgres, Auth o Storage reales, con la limitación documentada.
+- Las migraciones `20261023000001` a `20261023000005` están en orden cronológico y preparadas para aplicarse a un proyecto Supabase vacío. No se han aplicado en ningún entorno.
+- El proyecto de prueba acordado es `rsvtchefnydihokivaqg`. No usar producción ni información real. Agus correrá los comandos; este trabajo no ejecuta login, link, push ni ninguna operación remota.
+- `supabase/config.toml` todavía no existe. `npx supabase init` lo genera y es requisito para el flujo de `db push`. Queda pendiente decidir con Fran si se versiona; hasta acordarlo, revisar el `git status` después de `init` y no incluir el archivo en un commit.
+- Los scripts de integración solo aceptan la URL exacta `https://rsvtchefnydihokivaqg.supabase.co`, requieren `TEST_PROJECT_CONFIRMED=true`, rechazan claves `service_role`/`sb_secret` y no cargan archivos `.env` automáticamente.
+- Las tareas que necesitan Postgres, Auth, Storage o Security Advisor reales siguen sin marcar hasta que se ejecuten allí y se guarde evidencia. No se ejecuta `reset --linked` ni se envían datos de producción.
+
+## Checklist para aplicar y verificar en el proyecto de prueba
+
+Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` es un proyecto separado de pruebas, está vacío y no contiene datos que deban conservarse. Si el ref o el estado no coinciden, detenerse.
+
+1. Desde la raíz del repo, Agus ejecuta `npx supabase init`. Verificar que aparece `supabase/config.toml`, que no cambió ningún archivo de migración y que el archivo no contiene secretos. Acordar con Fran si se commitea; no asumirlo.
+2. Ejecutar `npx supabase login`. Verificar que la CLI confirma la sesión de Agus. No copiar el token a archivos, logs compartidos ni commits.
+3. Ejecutar `npx supabase link --project-ref rsvtchefnydihokivaqg`. Verificar que el ref enlazado coincide exactamente con el proyecto de pruebas y no con producción.
+4. Ejecutar `npx supabase migration list --linked`. Verificar que el remoto no registra ninguna de estas cinco migraciones y que las locales aparecen en orden `20261023000001` a `20261023000005`. Si el remoto tiene una migración o historial inesperado, detenerse antes de aplicar.
+5. Ejecutar `npx supabase db push --dry-run --linked`. Verificar que el plan contiene únicamente esas cinco migraciones, en orden, sin seed ni cambios de otros módulos. Si muestra cualquier otro cambio, detenerse.
+6. Solo tras confirmar que el proyecto está vacío y el dry run coincide, ejecutar `npx supabase db push --linked`. Verificar el resultado exitoso y que la CLI informa aplicar las cinco migraciones. No agregar `--include-seed`.
+7. Ejecutar otra vez `npx supabase migration list --linked`. Verificar que las cinco versiones aparecen aplicadas tanto local como remotamente y no hay diferencias.
+8. En SQL Editor del proyecto de prueba, verificar estructura y permisos:
+   ```sql
+   SELECT version
+   FROM supabase_migrations.schema_migrations
+   WHERE version IN ('20261023000001', '20261023000002', '20261023000003', '20261023000004', '20261023000005')
+   ORDER BY version;
+
+   SELECT c.relname, c.relrowsecurity
+   FROM pg_class AS c
+   JOIN pg_namespace AS n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public'
+     AND c.relname IN ('reports', 'idempotency_keys', 'report_confirmations');
+
+   SELECT column_name
+   FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'public_reports'
+   ORDER BY ordinal_position;
+   ```
+   Esperar cinco versiones, RLS activa en las tres tablas y una vista con `photo_public_path`, `confirmation_count`, `confirmation_threshold`, `street` y `street_number`; no deben aparecer `user_id`, `storage_path`, `mime_type`, `byte_size` ni `resolved_at` en la vista. Revisar también en Table Editor que `reports-originals` sea privado y `reports-public` público.
+9. Crear cuatro cuentas sintéticas de prueba en Auth y configurar en el entorno de la terminal `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY`) y `REPORTS_TEST_USER_1_EMAIL/PASSWORD` hasta `REPORTS_TEST_USER_4_EMAIL/PASSWORD`. El script no carga `.env`. Solo después de revisar el ref, Agus establece `$env:TEST_PROJECT_CONFIRMED = 'true'` y ejecuta `node scripts/integration/check-reports-cloud.mjs`. Verificar los resultados individuales de RLS, RPC, concurrencia y visibilidad de fotos; si una prueba falla, guardar el error sin incluir tokens.
+10. En el panel del proyecto de prueba, abrir Security Advisor y revisar hallazgos para tablas, vistas, funciones y Storage. Registrar cada advertencia con su objeto; no marcar 5.12 como completa solo porque no haya errores en tests.
+
+`npx supabase db push`, el SQL Editor y el script de integración apuntan únicamente al proyecto de prueba; no ejecutar `npx supabase db reset --linked`.
 
 ## Riesgos y compensaciones
 
 - **[Riesgo]** Una copia públicamente accesible se comparte por URL. **→ Mitigación:** solo se expone la copia derivada, saneada y sin ruta de usuario; mantener la decisión provisoria hasta revisión de Fran.
 - **[Riesgo]** Sin credencial de servidor no se puede enumerar ni borrar huérfanas con garantías. **→ Mitigación:** no usar SQL directo sobre `storage.objects`; dejar la limpieza pendiente y diseñar una Storage API segura.
 - **[Riesgo]** Límites de cuerpo en el hosting pueden rechazar fotos multipart válidas. **→ Mitigación:** acordar con Fran tamaño máximo de cliente compatible con 4 MiB de archivo más el resto del request y verificar el límite real del despliegue antes de integrar.
-- **[Riesgo]** Fixtures y clientes simulados no prueban RLS ni concurrencia. **→ Mitigación:** scripts con guardia de URL local y pruebas contra Auth, Postgres y Storage locales; sin marcar evidencia que no se haya ejecutado.
+- **[Riesgo]** Fixtures y clientes simulados no prueban RLS ni concurrencia. **→ Mitigación:** scripts con guardia del ref de pruebas y casos contra Auth, Postgres y Storage alojados; sin marcar evidencia que no se haya ejecutado.
 
 ## Plan de migración y merge
 
 1. Revisar los cuatro artefactos y el estado real del código; mantener las cinco migraciones editables en su lugar mientras no haya evidencia de aplicación.
-2. Implementar y probar los bloques de esquema/RPC, servicios/fotos y rutas; ejecutar cada bloque de integración solo si Supabase local está disponible.
+2. Implementar y probar los bloques de esquema/RPC, servicios/fotos y rutas; ejecutar la integración contra el proyecto de pruebas únicamente después del checklist anterior.
 3. Integrar primero PR #3 (`add-report-address`) a `main`; después actualizar únicamente `lib/reports/address.ts` para importar el contrato compartido y correr las verificaciones de integración.
 4. Integrar el PR de `feature/reports-backend` después del PR #3 y sus revisiones. No hacer push ni merge desde este trabajo.
 
@@ -87,5 +124,6 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 
 - **Fran / PR #3 (`add-report-address`):** integrar primero el contrato `Location.address` compartido. No editar `lib/contracts/**`, `docs/contracts.md` ni `package.json` desde este cambio. Hasta el merge, el backend mantiene su adaptador local.
 - **Fran / Storage:** revisar la decisión provisoria de lectura pública de copias saneadas y acordar consumo/cache, tamaño de request y limpieza por Storage API.
+- **Fran / configuración Supabase:** decidir si `supabase/config.toml`, generado por `npx supabase init`, se commitea en esta rama o se mantiene local. `db push` requiere que exista, pero no presupone que se versiona.
 - **Valen / visión:** confirmar el límite de datos en memoria, sin pedir cambios en `lib/vision/**` dentro de este cambio.
 - **Agus / seguridad de fotos públicas:** las políticas pueden vincular una carga a un claim propio `in_progress`, pero Postgres/Storage no pueden comprobar que el contenido público perdió sus metadatos. Como el RPC y Storage usan el rol `authenticated`, un cliente puede invocarlos directamente y omitir el saneamiento del handler. Acordar la amenaza aceptable y una forma de impedirlo antes de habilitar el bucket público; no hay una comprobación de bytes en estas migraciones.

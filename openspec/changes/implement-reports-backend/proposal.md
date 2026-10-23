@@ -10,7 +10,7 @@ La base compartida define los contratos y validadores, pero todavía falta una p
 - Publicar reportes mediante una RPC transaccional que consume el `report_id` reservado por la clave de idempotencia; agregar una RPC para marcar fallas definitivas.
 - Restringir el catálogo público a `pending` y `citizen-verification`, y exponer solo una proyección segura con dirección, conteo/umbral de confirmaciones y ruta de la foto pública.
 - Implementar endpoints de publicación, lista, detalle y confirmaciones con DTOs compatibles con los contratos compartidos, reintentos recuperables y sin secretos de servicio.
-- Probar autorización, políticas, atomicidad y concurrencia contra Supabase local; no ejecutar verificaciones contra producción.
+- Probar autorización, políticas, atomicidad y concurrencia en el proyecto Supabase de pruebas `rsvtchefnydihokivaqg`; no ejecutar verificaciones contra producción.
 
 ## Dependencias y orden de integración
 

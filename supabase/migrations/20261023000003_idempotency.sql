@@ -201,8 +201,12 @@ BEGIN
     RAISE EXCEPTION 'IDEMPOTENCY_KEY_NOT_IN_PROGRESS' USING ERRCODE = '55000';
   END IF;
 
-  IF NOT public.can_upload_report_object('reports-originals', p_storage_path)
-     OR NOT public.can_upload_report_object('reports-public', p_photo_public_path) THEN
+  IF p_storage_path !~ (
+       '^' || v_user_id::text || '/' || v_report_id::text || '/original[.](jpg|jpeg|png|webp)$'
+     )
+     OR p_photo_public_path !~ (
+       '^' || v_report_id::text || '[.](jpg|jpeg|png|webp)$'
+     ) THEN
     RAISE EXCEPTION 'REPORT_PHOTO_PATH_NOT_AUTHORIZED' USING ERRCODE = '42501';
   END IF;
 

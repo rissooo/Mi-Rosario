@@ -16,7 +16,7 @@
 
 ## 3. Fotos y mapeo de DTOs
 
-- [ ] 3.1 Generar en TypeScript la copia sin metadatos para JPEG/PNG/WebP sin decodificar la imagen; probar buffers mínimos con EXIF/texto y rechazo de formatos no analizables.
+- [x] 3.1 Generar en TypeScript la copia sin metadatos para JPEG/PNG/WebP sin decodificar la imagen; probar buffers mínimos con EXIF/texto y rechazo de formatos no analizables. Evidencia unitaria con buffers sintéticos en `tests/photos.test.ts`; no demuestra seguridad de Storage.
 - [ ] 3.2 Subir original y copia a rutas separadas, validar `IMAGE_MIME_TYPES` y construir `photo.url` desde la copia pública; probar privacidad de la original y URL pública.
 - [ ] 3.3 Crear `lib/reports/address.ts` con tipo local y mapear siempre `location.address` en lista/detalle sin cast ni fallback vacío; cubrir la forma del DTO sin editar contratos compartidos.
 - [ ] 3.4 Mantener cursor `{ version, createdAt, id, filters }`, filtros y orden actual; agregar tests de `listReportsService` para dirección, campos de foto y paginación.
@@ -51,3 +51,8 @@
 - Confirmar con Valen que la visión no requiere persistir fotos ni metadatos de análisis.
 - Revisar con Fran (también llamado Francisco) las decisiones de Storage y el orden de integración del PR #3.
 - Ejecutar verificaciones de seguridad solo en el proyecto de pruebas `rsvtchefnydihokivaqg`; nunca contra producción.
+
+## Evidencia
+
+- **Unitaria con simulación:** `node scripts/check-reports.mjs` cubre servicios, rutas mapeadas, saneado y manejo de respuestas RPC simuladas. Esa suite no ejecuta SQL ni prueba RLS, permisos efectivos de Storage, atomicidad o concurrencia.
+- **Contra base real:** toda tarea cuyo criterio pide aplicar/verificar migraciones, permisos, Storage, Auth, transacciones o concurrencia en el proyecto de pruebas permanece sin marcar hasta registrar esa ejecución.

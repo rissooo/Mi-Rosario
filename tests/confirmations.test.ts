@@ -110,33 +110,67 @@ test("confirmReport maps domain error codes to exact HTTP statuses", async () =>
   }
 });
 
-test("getMyConfirmation returns eligible status for non-author citizen", async () => {
+test("getMyConfirmation usa la RPC y devuelve confirmación, conteo y umbral reales", async () => {
+  const rpcCalls: Array<{ name: string; args: unknown }> = [];
   const mockSupabase = {
     auth: {
       getUser: async () => ({ data: { user: { id: "user-non-author" } } }),
     },
-    from: () => ({
-      select: (fields: string, opts?: { count?: string; head?: boolean }) => {
-        if (opts?.count) {
-          return {
-            eq: () => ({ count: 1 }),
-          };
-        }
-        return {
-          eq: () => ({
-            eq: () => ({ maybeSingle: async () => ({ data: null }) }),
-            single: async () => ({
-              data: {
-                id: reportId,
-                user_id: "author-user",
-                status: "pending",
-              },
-              error: null,
-            }),
-          }),
-        };
+    rpc: async (name: string, args: unknown) => {
+      rpcCalls.push({ name, args });
+      return {
+        data: {
+          success: true,
+          status: "pending",
+          confirmed: true,
+          confirmedAt: nowIso,
+          canConfirm: false,
+          reason: "already-confirmed",
+          confirmationCount: 4,
+          threshold: 5,
+        },
+        error: null,
+      };
+    },
+    from: () => assert.fail("getMyConfirmation no debe consultar tablas directamente"),
+  } as unknown as SupabaseClient;
+
+  const res = await getMyConfirmation(mockSupabase, reportId);
+  assert.equal(res.httpStatus, 200);
+  assert.ok(res.result.data);
+  const validation = validateMyConfirmation(res.result.data);
+  assert.equal(validation.valid, true);
+  if (res.result.data) {
+    assert.equal(res.result.data.canConfirm, false);
+    assert.equal(res.result.data.confirmed, true);
+    assert.equal(res.result.data.confirmedAt, nowIso);
+    assert.equal(res.result.data.reason, "already-confirmed");
+    assert.equal(res.result.data.citizenVerification.confirmationCount, 4);
+    assert.equal(res.result.data.citizenVerification.threshold, 5);
+    assert.equal(res.result.data.citizenVerification.corroborated, false);
+  }
+  assert.deepEqual(rpcCalls, [{ name: "get_my_confirmation", args: { p_report_id: reportId } }]);
+});
+
+test("getMyConfirmation conserva elegibilidad con umbral distinto del inicial", async () => {
+  const mockSupabase = {
+    auth: {
+      getUser: async () => ({ data: { user: { id: "user-non-author" } } }),
+    },
+    rpc: async () => ({
+      data: {
+        success: true,
+        status: "pending",
+        confirmed: false,
+        confirmedAt: null,
+        canConfirm: true,
+        reason: null,
+        confirmationCount: 2,
+        threshold: 5,
       },
+      error: null,
     }),
+    from: () => assert.fail("getMyConfirmation no debe consultar tablas directamente"),
   } as unknown as SupabaseClient;
 
   const res = await getMyConfirmation(mockSupabase, reportId);
@@ -147,6 +181,26 @@ test("getMyConfirmation returns eligible status for non-author citizen", async (
   if (res.result.data) {
     assert.equal(res.result.data.canConfirm, true);
     assert.equal(res.result.data.confirmed, false);
+    assert.equal(res.result.data.confirmedAt, null);
     assert.equal(res.result.data.reason, null);
+    assert.equal(res.result.data.citizenVerification.threshold, 5);
   }
+});
+
+test("getMyConfirmation devuelve 401 y no llama la RPC sin sesión", async () => {
+  let rpcCalled = false;
+  const mockSupabase = {
+    auth: {
+      getUser: async () => ({ data: { user: null } }),
+    },
+    rpc: async () => {
+      rpcCalled = true;
+      return { data: null, error: null };
+    },
+  } as unknown as SupabaseClient;
+
+  const res = await getMyConfirmation(mockSupabase, reportId);
+  assert.equal(res.httpStatus, 401);
+  assert.equal(res.result.error?.code, "UNAUTHENTICATED");
+  assert.equal(rpcCalled, false);
 });

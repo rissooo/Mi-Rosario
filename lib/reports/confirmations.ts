@@ -6,6 +6,7 @@ import type {
   ReportStage,
   UUID,
 } from "../contracts/reports";
+import { validateMyConfirmation } from "../contracts/validation";
 
 type ConfirmRpcResponse = {
   success: boolean;
@@ -16,6 +17,18 @@ type ConfirmRpcResponse = {
   confirmationCount?: number;
   threshold?: number;
   status?: ReportStage;
+};
+
+type MyConfirmationRpcResponse = {
+  success: boolean;
+  code?: string;
+  status?: ReportStage;
+  confirmed?: boolean;
+  confirmedAt?: string | null;
+  canConfirm?: boolean;
+  reason?: MyConfirmation["reason"];
+  confirmationCount?: number;
+  threshold?: number;
 };
 
 export type ConfirmExecutionResult = {
@@ -161,73 +174,104 @@ export async function getMyConfirmation(
     };
   }
 
-  // 1. Fetch report details
-  const { data: report, error: reportError } = await supabase
-    .from("reports")
-    .select("id, user_id, status")
-    .eq("id", reportId)
-    .single();
+  const { data, error } = await supabase.rpc("get_my_confirmation", {
+    p_report_id: reportId,
+  });
 
-  if (reportError || !report) {
+  if (error) {
+    if (error.message.includes("UNAUTHENTICATED")) {
+      return {
+        httpStatus: 401,
+        result: {
+          error: {
+            code: "UNAUTHENTICATED",
+            message: "Iniciá sesión para consultar la confirmación.",
+          },
+        },
+      };
+    }
     return {
-      httpStatus: 404,
+      httpStatus: 500,
       result: {
         error: {
-          code: "REPORT_NOT_FOUND",
-          message: "No se encontró el reporte.",
+          code: "INTERNAL_ERROR",
+          message: error.message,
         },
       },
     };
   }
 
-  // 2. Fetch confirmation count and current user's confirmation
-  const [{ count }, { data: existingConfirmation }] = await Promise.all([
-    supabase
-      .from("report_confirmations")
-      .select("*", { count: "exact", head: true })
-      .eq("report_id", reportId),
-    supabase
-      .from("report_confirmations")
-      .select("created_at")
-      .eq("report_id", reportId)
-      .eq("user_id", user.id)
-      .maybeSingle(),
-  ]);
+  const response = data as MyConfirmationRpcResponse | null;
+  if (!response?.success) {
+    if (response?.code === "REPORT_NOT_FOUND") {
+      return {
+        httpStatus: 404,
+        result: {
+          error: {
+            code: "REPORT_NOT_FOUND",
+            message: "No se encontró el reporte.",
+          },
+        },
+      };
+    }
+    return {
+      httpStatus: 500,
+      result: {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "No se pudo consultar la confirmación del reporte.",
+        },
+      },
+    };
+  }
 
-  const confirmationCount = count ?? 0;
-  const threshold = 3;
-  const isAuthor = report.user_id === user.id;
-  const isConfirmed = !!existingConfirmation;
-  const isResolved = report.status === "resolved" || report.status === "municipal-verification";
-
-  let canConfirm = true;
-  let reason: "author" | "resolved" | "already-confirmed" | null = null;
-
-  if (isAuthor) {
-    canConfirm = false;
-    reason = "author";
-  } else if (isConfirmed) {
-    canConfirm = false;
-    reason = "already-confirmed";
-  } else if (isResolved) {
-    canConfirm = false;
-    reason = "resolved";
+  if (
+    !response.status ||
+    typeof response.confirmed !== "boolean" ||
+    typeof response.canConfirm !== "boolean" ||
+    typeof response.confirmationCount !== "number" ||
+    typeof response.threshold !== "number" ||
+    response.confirmedAt === undefined ||
+    response.reason === undefined
+  ) {
+    return {
+      httpStatus: 500,
+      result: {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "La respuesta de consulta de confirmación no es válida.",
+        },
+      },
+    };
   }
 
   const myConfirmation: MyConfirmation = {
     reportId: reportId as UUID,
-    status: report.status as ReportStage,
-    confirmed: isConfirmed,
-    confirmedAt: existingConfirmation?.created_at ?? null,
-    canConfirm,
-    reason,
+    status: response.status,
+    confirmed: response.confirmed,
+    confirmedAt: response.confirmedAt,
+    canConfirm: response.canConfirm,
+    reason: response.reason,
     citizenVerification: {
-      confirmationCount,
-      threshold,
+      confirmationCount: response.confirmationCount,
+      threshold: response.threshold,
       policyStatus: "approved",
-      corroborated: confirmationCount >= threshold,
+      corroborated: response.confirmationCount >= response.threshold,
     },
   };
+
+  const validation = validateMyConfirmation(myConfirmation);
+  if (!validation.valid) {
+    return {
+      httpStatus: 500,
+      result: {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "La respuesta de consulta de confirmación no cumple el contrato.",
+        },
+      },
+    };
+  }
 
   return {
     httpStatus: 200,

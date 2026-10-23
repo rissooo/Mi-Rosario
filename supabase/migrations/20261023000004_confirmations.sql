@@ -93,7 +93,7 @@ BEGIN
       'success', true,
       'code', 'ALREADY_CONFIRMED',
       'confirmed', true,
-      'confirmedAt', v_existing_confirmed_at,
+      'confirmedAt', pg_catalog.to_char(v_existing_confirmed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
       'confirmationCount', v_count,
       'threshold', v_threshold,
       'status', v_status
@@ -130,7 +130,7 @@ BEGIN
       'success', true,
       'code', 'ALREADY_CONFIRMED',
       'confirmed', true,
-      'confirmedAt', v_existing_confirmed_at,
+      'confirmedAt', pg_catalog.to_char(v_existing_confirmed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
       'confirmationCount', v_count,
       'threshold', v_threshold,
       'status', v_status
@@ -154,7 +154,7 @@ BEGIN
       'success', true,
       'code', 'CONFIRMED_AND_CORROBORATED',
       'confirmed', true,
-      'confirmedAt', v_confirmed_at,
+      'confirmedAt', pg_catalog.to_char(v_confirmed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
       'confirmationCount', v_count,
       'threshold', v_threshold,
       'status', v_status
@@ -170,7 +170,7 @@ BEGIN
     'success', true,
     'code', 'CONFIRMED',
     'confirmed', true,
-    'confirmedAt', v_confirmed_at,
+    'confirmedAt', pg_catalog.to_char(v_confirmed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     'confirmationCount', v_count,
     'threshold', v_threshold,
     'status', v_status
@@ -180,3 +180,72 @@ $$;
 
 REVOKE ALL PRIVILEGES ON FUNCTION public.confirm_report(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.confirm_report(UUID) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_my_confirmation(
+  p_report_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_user_id UUID;
+  v_author_id UUID;
+  v_status TEXT;
+  v_confirmation_count INTEGER;
+  v_confirmation_threshold INTEGER;
+  v_confirmed_at TIMESTAMPTZ;
+  v_confirmed BOOLEAN;
+  v_reason TEXT;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'UNAUTHENTICATED: se requiere una sesión ciudadana' USING ERRCODE = '28000';
+  END IF;
+
+  SELECT
+    r.user_id,
+    r.status,
+    r.confirmation_count,
+    r.confirmation_threshold,
+    c.created_at
+  INTO
+    v_author_id,
+    v_status,
+    v_confirmation_count,
+    v_confirmation_threshold,
+    v_confirmed_at
+  FROM public.reports AS r
+  LEFT JOIN public.report_confirmations AS c
+    ON c.report_id = r.id AND c.user_id = v_user_id
+  WHERE r.id = p_report_id;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'code', 'REPORT_NOT_FOUND');
+  END IF;
+
+  v_confirmed := v_confirmed_at IS NOT NULL;
+  v_reason := CASE
+    WHEN v_status = 'resolved' THEN 'resolved'
+    WHEN v_user_id = v_author_id THEN 'author'
+    WHEN v_confirmed THEN 'already-confirmed'
+    ELSE NULL
+  END;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'status', v_status,
+    'confirmed', v_confirmed,
+    'confirmedAt', pg_catalog.to_char(v_confirmed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    'canConfirm', v_reason IS NULL,
+    'reason', v_reason,
+    'confirmationCount', v_confirmation_count,
+    'threshold', v_confirmation_threshold
+  );
+END;
+$$;
+
+REVOKE ALL PRIVILEGES ON FUNCTION public.get_my_confirmation(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_confirmation(UUID) TO authenticated;

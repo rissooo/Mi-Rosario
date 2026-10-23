@@ -38,3 +38,19 @@ export const ROSARIO_BOUNDARY: readonly (readonly LatLngTuple[])[] = [
 
 /** Bounding box del límite: [[sur, oeste], [norte, este]]. */
 export const ROSARIO_BBOX: readonly [LatLngTuple, LatLngTuple] = [[-33.0348662, -60.7832623], [-32.8696461, -60.6116695]];
+
+/** Ray casting sobre un anillo de puntos [latitud, longitud]. */
+function insideRing(latitude: number, longitude: number, ring: readonly LatLngTuple[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [latI, lngI] = ring[i];
+    const [latJ, lngJ] = ring[j];
+    if ((latI > latitude) !== (latJ > latitude) && longitude < ((lngJ - lngI) * (latitude - latI)) / (latJ - latI) + lngI) inside = !inside;
+  }
+  return inside;
+}
+
+/** Indica si el punto cae dentro del límite municipal de Rosario. */
+export function isInsideRosario(latitude: number, longitude: number): boolean {
+  return ROSARIO_BOUNDARY.some((ring) => insideRing(latitude, longitude, ring));
+}

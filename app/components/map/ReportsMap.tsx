@@ -2,25 +2,22 @@
 
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { MapContainer, Marker, Polygon, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { useCallback, useEffect, useReducer, useRef, useState, type RefObject } from "react";
+import { MapContainer, Marker, useMap, useMapEvents } from "react-leaflet";
 import { INITIAL_CATEGORIES } from "@/lib/contracts/categories";
 import type { Report, Severity } from "@/lib/contracts/reports";
 import { ReportDetail } from "@/app/components/reports/ReportDetail";
-import { loadAllReportsInBbox, toBbox } from "./report-source";
-import { ROSARIO_BBOX, ROSARIO_BOUNDARY } from "./rosario-boundary";
+import { LoginPrompt } from "@/app/components/reports/LoginPrompt";
+import { ReportPanel } from "@/app/components/reports/ReportPanel";
+import { draftReducer, emptyDraft, hasDraftData, type Point } from "@/app/components/reports/report-draft";
+import { parseSimulatedFailure, type SimulatedFailure } from "@/app/components/reports/report-publisher";
+import { useGeolocation } from "@/app/components/reports/use-geolocation";
+import { createClient } from "@/utils/supabase/client";
+import { loadAllReportsInBbox, toBbox, USING_SAMPLE_DATA } from "./report-source";
+import { isInsideRosario } from "./rosario-boundary";
+import { PANNING_BOUNDS, ROSARIO_CENTER, RosarioMask } from "./RosarioMask";
 
-// Un poco al oeste de la costa, para que la vista la ocupe la ciudad y no las islas del Paraná.
-const ROSARIO_CENTER: L.LatLngTuple = [-32.952, -60.66];
 const INITIAL_ZOOM = 13;
-// La vista se mantiene alrededor del municipio; la máscara oscurece lo que queda fuera del límite.
-const ROSARIO_BOUNDS = L.latLngBounds(ROSARIO_BBOX[0], ROSARIO_BBOX[1]);
-// Margen extra (dentro de la zona oscurecida) para que un marcador del borde de la ciudad, como el
-// centro junto al río, se pueda seguir moviendo para que salga de abajo del panel de detalle.
-const PANNING_BOUNDS = ROSARIO_BOUNDS.pad(0.35);
-const BOUNDARY_RINGS: L.LatLngTuple[][] = ROSARIO_BOUNDARY.map((ring) => [...ring]);
-const WORLD_RING: L.LatLngTuple[] = [[-90, -180], [-90, 180], [90, 180], [90, -180]];
-const OUTSIDE_MASK: L.LatLngTuple[][] = [WORLD_RING, ...BOUNDARY_RINGS];
 const RELOAD_DEBOUNCE_MS = 300;
 
 const SEVERITY_MARKER_CLASSES: Record<Severity, string> = {
@@ -48,6 +45,12 @@ function markerIcon(report: Report): L.DivIcon {
   return icon;
 }
 
+const PIN_HTML = '<span aria-hidden="true" class="block h-8 w-8 -rotate-45 rounded-full rounded-bl-none border-2 border-white bg-red-600 shadow-md"></span>';
+// La punta del pin es la esquina recta del cuadrado de 32 px rotado 45°: queda centrada
+// horizontalmente y a 16 + 16·√2 ≈ 39 px del borde superior. Ese es el punto marcado.
+const PIN_TIP: [number, number] = [16, 39];
+const PIN_ICON = L.divIcon({ className: "", html: PIN_HTML, iconSize: [32, 32], iconAnchor: PIN_TIP });
+
 function ViewportWatcher({ onViewportChange }: { onViewportChange: (bbox: string) => void }) {
   const map = useMap();
   const report = useCallback(() => {
@@ -60,57 +63,71 @@ function ViewportWatcher({ onViewportChange }: { onViewportChange: (bbox: string
   return null;
 }
 
-/** El límite para alejar el zoom depende del tamaño de la pantalla: como máximo, la ciudad entera ocupa la vista. */
-function RosarioZoomLimit() {
+/** Informa el centro del mapa cada vez que se termina de mover: es el punto bajo el pin fijo. */
+function CenterWatcher({ onCenterChange }: { onCenterChange: (point: Point) => void }) {
   const map = useMap();
-  useEffect(() => {
-    const update = () => map.setMinZoom(map.getBoundsZoom(ROSARIO_BOUNDS));
-    update();
-    map.on("resize", update);
-    return () => {
-      map.off("resize", update);
-    };
-  }, [map]);
+  const report = useCallback(() => {
+    const center = map.getCenter();
+    onCenterChange({ latitude: center.lat, longitude: center.lng });
+  }, [map, onCenterChange]);
+
+  useMapEvents({ moveend: report });
+  useEffect(report, [report]);
   return null;
 }
 
 const FOCUS_MARGIN_PX = 40;
 
 /**
- * Mueve el mapa solo cuando el marcador elegido queda debajo del panel de detalle, y solo lo justo para
- * llevarlo a la zona libre: un marcador visible nunca se mueve y los del borde no salen de los límites.
+ * Mueve el mapa solo cuando el punto queda debajo del panel (de detalle o del reporte), y solo lo
+ * justo para llevarlo a la zona libre: un punto visible nunca se mueve y los del borde no salen de
+ * los límites.
  */
-function SelectedMarkerFocus({ report, panelRef }: { report: Report | null; panelRef: RefObject<HTMLElement | null> }) {
+function PointFocus({ point, panelRef }: { point: Point | null; panelRef: RefObject<HTMLElement | null> }) {
   const map = useMap();
   useEffect(() => {
     const panel = panelRef.current;
-    if (!report || !panel) return;
+    if (!point || !panel) return;
     const mapRect = map.getContainer().getBoundingClientRect();
     const panelRect = panel.getBoundingClientRect();
     // Panel de ancho completo: el panel inferior del celular. Si no, el panel lateral de la derecha.
     const free = panelRect.width >= mapRect.width - 1
       ? { left: 0, top: 0, right: mapRect.width, bottom: panelRect.top - mapRect.top }
       : { left: 0, top: 0, right: panelRect.left - mapRect.left, bottom: mapRect.height };
-    const point = map.latLngToContainerPoint([report.location.latitude, report.location.longitude]);
+    const target = map.latLngToContainerPoint([point.latitude, point.longitude]);
     const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-    const targetX = clamp(point.x, free.left + FOCUS_MARGIN_PX, free.right - FOCUS_MARGIN_PX);
-    const targetY = clamp(point.y, free.top + FOCUS_MARGIN_PX, free.bottom - FOCUS_MARGIN_PX);
-    if (targetX === point.x && targetY === point.y) return;
-    map.panBy([point.x - targetX, point.y - targetY]);
-  }, [map, report, panelRef]);
+    const targetX = clamp(target.x, free.left + FOCUS_MARGIN_PX, free.right - FOCUS_MARGIN_PX);
+    const targetY = clamp(target.y, free.top + FOCUS_MARGIN_PX, free.bottom - FOCUS_MARGIN_PX);
+    if (targetX === target.x && targetY === target.y) return;
+    map.panBy([target.x - targetX, target.y - targetY]);
+  }, [map, point, panelRef]);
   return null;
 }
 
+const hasSession = async () => Boolean((await createClient().auth.getClaims()).data?.claims);
+
 type LoadState = "loading" | "ready" | "error";
+/** viewing: mapa normal; picking: elegir el punto con el pin fijo; filling: panel del reporte. */
+type Mode = "viewing" | "picking" | "filling";
+
+const floatingButton = "pointer-events-auto rounded-full px-4 py-2 text-sm font-medium shadow disabled:opacity-50";
 
 export default function ReportsMap() {
+  const [map, setMap] = useState<L.Map | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [selected, setSelected] = useState<Report | null>(null);
+  const [mode, setMode] = useState<Mode>("viewing");
+  const [draft, dispatch] = useReducer(draftReducer, undefined, emptyDraft);
+  const [center, setCenter] = useState<Point | null>(null);
+  const [loginNeeded, setLoginNeeded] = useState(false);
+  const geolocation = useGeolocation();
   const panelRef = useRef<HTMLElement>(null);
+  const reportPanelRef = useRef<HTMLElement>(null);
   const latestRequest = useRef(0);
   const lastBbox = useRef<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const simulate = useRef<SimulatedFailure | null>(null);
 
   const load = useCallback(async (bbox: string) => {
     const requestId = ++latestRequest.current;
@@ -138,46 +155,108 @@ export default function ReportsMap() {
     if (lastBbox.current) void load(lastBbox.current);
   };
 
+  const { clearMessage } = geolocation;
+
+  /** Con sesión empieza el reporte; sin sesión muestra el login. La verificación real la hace la publicación (401). */
+  const applySession = useCallback((hasSession: boolean) => {
+    setLoginNeeded(!hasSession);
+    if (!hasSession) return;
+    setSelected(null);
+    clearMessage();
+    setMode("picking");
+  }, [clearMessage]);
+
+  const startReport = useCallback(() => hasSession().then(applySession), [applySession]);
+
+  // Al volver del login con ?reportar=1 se abre el reporte; ?simular= solo vale en el modo de ejemplo.
+  // Corre una sola vez: si no, el error simulado se volvería a cargar en cada reintento.
+  const readUrlOnce = useRef(false);
+  useEffect(() => {
+    if (readUrlOnce.current) return;
+    readUrlOnce.current = true;
+    const params = new URLSearchParams(window.location.search);
+    if (USING_SAMPLE_DATA) simulate.current = parseSimulatedFailure(params.get("simular"));
+    if (params.get("reportar") !== "1") return;
+    params.delete("reportar");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    void hasSession().then(applySession);
+  }, [applySession]);
+
+  const insideRosario = center ? isInsideRosario(center.latitude, center.longitude) : false;
+
+  const confirmPoint = () => {
+    if (!center || !insideRosario) return;
+    dispatch({ type: "set", changes: { point: center } });
+    setMode("filling");
+  };
+
+  const changeLocation = () => {
+    if (draft.point) map?.setView([draft.point.latitude, draft.point.longitude]);
+    clearMessage();
+    setMode("picking");
+  };
+
+  const cancelReport = () => {
+    if (hasDraftData(draft) && !window.confirm("¿Descartar el reporte?")) return;
+    dispatch({ type: "reset" });
+    setMode("viewing");
+  };
+
+  const locateMe = () => {
+    geolocation.locate((point) => map?.flyTo([point.latitude, point.longitude], Math.max(map.getZoom(), 16)));
+  };
+
+  const handlePublished = () => {
+    // El borrador y su clave se descartan; el marcador nuevo aparece al recargar el área visible.
+    dispatch({ type: "reset" });
+    if (lastBbox.current) void load(lastBbox.current);
+  };
+
+  const viewReport = (report: Report) => {
+    setMode("viewing");
+    setSelected(report);
+  };
+
+  const reportAnother = () => {
+    dispatch({ type: "reset" });
+    clearMessage();
+    setMode("picking");
+  };
+
   return (
     <div className="relative flex-1">
       <MapContainer
+        ref={setMap}
         center={ROSARIO_CENTER}
         zoom={INITIAL_ZOOM}
         maxBounds={PANNING_BOUNDS}
         maxBoundsViscosity={1}
         className="h-full w-full"
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          bounds={PANNING_BOUNDS}
-        />
-        <Polygon
-          positions={OUTSIDE_MASK}
-          interactive={false}
-          pathOptions={{ stroke: false, fillColor: "#3f3f46", fillOpacity: 0.55 }}
-        />
-        <Polygon
-          positions={BOUNDARY_RINGS}
-          interactive={false}
-          pathOptions={{ color: "#18181b", weight: 2, fill: false }}
-        />
-        <RosarioZoomLimit />
+        <RosarioMask />
         <ViewportWatcher onViewportChange={handleViewportChange} />
-        <SelectedMarkerFocus report={selected} panelRef={panelRef} />
+        {mode === "picking" && <CenterWatcher onCenterChange={setCenter} />}
+        <PointFocus
+          point={mode === "filling" ? draft.point : selected?.location ?? null}
+          panelRef={mode === "filling" ? reportPanelRef : panelRef}
+        />
         {reports.map((report) => (
           <Marker
             key={report.id}
             position={[report.location.latitude, report.location.longitude]}
             icon={markerIcon(report)}
             title={report.title}
-            eventHandlers={{ click: () => setSelected(report) }}
+            eventHandlers={{ click: () => { if (mode === "viewing") setSelected(report); } }}
           />
         ))}
+        {mode === "filling" && draft.point && (
+          <Marker position={[draft.point.latitude, draft.point.longitude]} icon={PIN_ICON} interactive={false} title="Ubicación del reporte" />
+        )}
       </MapContainer>
 
       <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center px-4" aria-live="polite">
-        {loadState === "loading" && (
+        {loadState === "loading" && mode === "viewing" && (
           <p className="rounded-full bg-white/90 px-3 py-1 text-sm text-zinc-700 shadow dark:bg-zinc-900/90 dark:text-zinc-200">
             Cargando reportes...
           </p>
@@ -192,7 +271,83 @@ export default function ReportsMap() {
         )}
       </div>
 
-      {selected && <ReportDetail key={selected.id} ref={panelRef} report={selected} onClose={() => setSelected(null)} />}
+      {mode === "viewing" && !selected && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-8 z-[1000] flex flex-col items-center gap-3 px-4">
+          {loginNeeded && (
+            <div className="pointer-events-auto relative w-full max-w-sm">
+              <LoginPrompt next="/mapa?reportar=1" message="Entrá con Google para reportar." />
+              <button type="button" onClick={() => setLoginNeeded(false)} aria-label="Cerrar" className="absolute right-3 top-2 text-lg text-zinc-500">
+                ×
+              </button>
+            </div>
+          )}
+          <button type="button" onClick={() => void startReport()} className={`${floatingButton} bg-foreground px-6 py-3 text-base text-background`}>
+            Reportar
+          </button>
+        </div>
+      )}
+
+      {mode === "picking" && (
+        <>
+          {/* Pin fijo: se mueve el mapa, no el pin. La punta queda en el centro exacto del mapa. */}
+          <div
+            className="pointer-events-none absolute left-1/2 top-1/2 z-[1000]"
+            style={{ transform: `translate(-${PIN_TIP[0]}px, -${PIN_TIP[1]}px)` }}
+            dangerouslySetInnerHTML={{ __html: PIN_HTML }}
+          />
+          {/* Margen a los costados para no tapar los botones de zoom de arriba a la izquierda. */}
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-[1001] flex justify-center px-14">
+            <p className="rounded-2xl bg-white/95 px-4 py-2 text-center text-sm font-medium shadow dark:bg-zinc-900/95">
+              Mové el mapa hasta que el pin quede sobre el problema
+            </p>
+          </div>
+          <div className="pointer-events-none absolute inset-x-0 bottom-6 z-[1001] flex flex-col items-center gap-2 px-4">
+            {center && !insideRosario && (
+              <p role="alert" className="rounded-full bg-white px-4 py-2 text-sm font-medium text-red-700 shadow dark:bg-zinc-900 dark:text-red-400">
+                El punto tiene que estar dentro de Rosario.
+              </p>
+            )}
+            {geolocation.message && (
+              <p role="status" className="max-w-sm rounded-2xl bg-white px-4 py-2 text-center text-sm shadow dark:bg-zinc-900">
+                {geolocation.message}
+              </p>
+            )}
+            <div className="flex flex-wrap justify-center gap-2">
+              <button type="button" onClick={locateMe} disabled={geolocation.locating} className={`${floatingButton} bg-white dark:bg-zinc-900`}>
+                {geolocation.locating ? "Buscando tu ubicación..." : "Usar mi ubicación"}
+              </button>
+              <button type="button" onClick={cancelReport} className={`${floatingButton} bg-white dark:bg-zinc-900`}>
+                Cancelar
+              </button>
+            </div>
+            <button type="button" onClick={confirmPoint} disabled={!insideRosario} className={`${floatingButton} bg-foreground px-6 py-3 text-base text-background`}>
+              Confirmar ubicación
+            </button>
+          </div>
+        </>
+      )}
+
+      {mode === "filling" && (
+        <ReportPanel
+          ref={reportPanelRef}
+          draft={draft}
+          onChange={(changes) => dispatch({ type: "set", changes })}
+          onChangeLocation={changeLocation}
+          onCancel={cancelReport}
+          onPublished={handlePublished}
+          onViewReport={viewReport}
+          onReportAnother={reportAnother}
+          takeSimulatedFailure={() => {
+            const failure = simulate.current;
+            simulate.current = null;
+            return failure;
+          }}
+        />
+      )}
+
+      {mode === "viewing" && selected && (
+        <ReportDetail key={selected.id} ref={panelRef} report={selected} onClose={() => setSelected(null)} />
+      )}
     </div>
   );
 }

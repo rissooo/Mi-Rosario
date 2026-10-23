@@ -10,6 +10,14 @@ import { SAMPLE_REPORTS } from "./sample-reports";
 /** Vale true mientras listReports sirve datos sintéticos; la página muestra un aviso de datos de ejemplo. */
 export const USING_SAMPLE_DATA = true;
 
+// Reportes publicados desde el formulario en el modo de ejemplo. Viven en memoria hasta recargar la página.
+const publishedSampleReports: Report[] = [];
+
+/** Suma un reporte publicado en el modo de ejemplo para que aparezca en el mapa. */
+export function addPublishedSampleReport(report: Report): void {
+  publishedSampleReports.push(report);
+}
+
 export class ReportSourceError extends Error {
   constructor(readonly apiError: ApiError) {
     super(apiError.message);
@@ -58,7 +66,7 @@ export async function listReports(query: ReportListQuery): Promise<ReportList> {
     Object.entries({ categoryId, status, bbox }).filter(([, value]) => value !== undefined),
   );
 
-  let matches = SAMPLE_REPORTS
+  let matches = [...SAMPLE_REPORTS, ...publishedSampleReports]
     .filter((report) => (!bbox || insideBbox(report, bbox)) &&
       (!categoryId || report.categoryId === categoryId) &&
       (!status || report.status === status))

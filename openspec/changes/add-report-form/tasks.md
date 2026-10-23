@@ -31,7 +31,7 @@
 ## 5. Verificación integral
 
 - [x] 5.1 Correr `npm.cmd run lint`, `npm.cmd exec -- tsc --noEmit --incremental false`, `npm.cmd run check:contracts`, `node app/components/map/check-map-data.mjs`, `node app/components/reports/check-report-form.mjs`, `npm.cmd run build`, `openspec.cmd validate add-report-form --strict` y `git diff --check`. Verificar que todo pasa.
-- [ ] 5.2 Probar el flujo completo en un celular real: login, "Reportar", elegir el punto moviendo el mapa, foto con la cámara, categoría, gravedad, dirección, publicar y ver el marcador nuevo. Verificar dejando capturas para el PR.
+- [x] 5.2 Probar el flujo completo en un celular real: login, "Reportar", elegir el punto moviendo el mapa, foto con la cámara, categoría, gravedad, dirección, publicar y ver el marcador nuevo. Verificar dejando capturas para el PR.
 - [x] 5.3 Listar los archivos modificados y marcar los compartidos (`app/auth/callback/route.ts`). Verificar con `git status` que no hay cambios en `lib/contracts/`, `package.json`, `app/layout.tsx`, `app/page.tsx`, `app/auth-buttons.tsx`, `proxy.ts` ni en `utils/supabase/`.
 
 ## Workflow follow-up

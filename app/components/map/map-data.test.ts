@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { LatLngTuple } from "leaflet";
 import { FUTURE_INSTITUTIONAL_STAGES, SEVERITIES } from "../../../lib/contracts/reports";
 import { INITIAL_CATEGORIES } from "../../../lib/contracts/categories";
 import { validateReport, validateReportList } from "../../../lib/contracts/validation";
-import { listReports, loadAllReportsInBbox, ReportSourceError, toBbox } from "./report-source";
-import { ROSARIO_BOUNDARY } from "./rosario-boundary";
+import { addPublishedSampleReport, listReports, loadAllReportsInBbox, ReportSourceError, toBbox } from "./report-source";
+import { isInsideRosario } from "./rosario-boundary";
 import { SAMPLE_REPORTS } from "./sample-reports";
 
 const ROSARIO_BBOX = "-60.8,-33.05,-60.55,-32.85";
@@ -21,23 +20,13 @@ test("los reportes de ejemplo son reportes válidos del MVP y cubren todas las c
   assert.ok(SAMPLE_REPORTS.some((report) => report.location.address.number === null), "un lugar sin altura");
 });
 
-/** Ray casting; los anillos son [latitud, longitud]. */
-function insideRing(latitude: number, longitude: number, ring: readonly LatLngTuple[]): boolean {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [latI, lngI] = ring[i];
-    const [latJ, lngJ] = ring[j];
-    if ((latI > latitude) !== (latJ > latitude) && longitude < ((lngJ - lngI) * (latitude - latI)) / (latJ - latI) + lngI) inside = !inside;
-  }
-  return inside;
-}
-
 test("los reportes de ejemplo están dentro del límite municipal de Rosario", () => {
   for (const report of SAMPLE_REPORTS) {
     const { latitude, longitude } = report.location;
-    assert.ok(ROSARIO_BOUNDARY.some((ring) => insideRing(latitude, longitude, ring)), report.title);
+    assert.ok(isInsideRosario(latitude, longitude), report.title);
   }
-  assert.equal(insideRing(-33.0, -60.77, ROSARIO_BOUNDARY[0]), false, "Pérez queda afuera");
+  assert.equal(isInsideRosario(-33.0, -60.77), false, "Pérez queda afuera");
+  assert.equal(isInsideRosario(-32.915, -60.8), false, "Funes queda afuera");
 });
 
 test("los reportes de ejemplo nunca tienen etapas institucionales", () => {
@@ -92,6 +81,16 @@ test("loadAllReportsInBbox recorre todas las páginas sin perder ni duplicar rep
   const reports = await loadAllReportsInBbox(ROSARIO_BBOX, 5);
   assert.equal(reports.length, SAMPLE_REPORTS.length);
   assert.equal(new Set(reports.map((report) => report.id)).size, SAMPLE_REPORTS.length);
+});
+
+test("un reporte publicado en el modo de ejemplo aparece en el área que lo contiene", async () => {
+  const published = { ...SAMPLE_REPORTS[0], id: "40000000-0000-4000-8000-000000000001", title: "Reporte publicado de prueba" };
+  addPublishedSampleReport(published);
+  const { latitude, longitude } = published.location;
+  const inside = await listReports({ bbox: `${longitude - 0.001},${latitude - 0.001},${longitude + 0.001},${latitude + 0.001}` });
+  assert.ok(inside.items.some((report) => report.id === published.id));
+  const outside = await listReports({ bbox: "10,10,11,11" });
+  assert.ok(!outside.items.some((report) => report.id === published.id));
 });
 
 test("toBbox recorta a rangos válidos los límites del área visible que dan la vuelta", () => {

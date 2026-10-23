@@ -118,7 +118,9 @@ Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` e
 
 - Confirmar que `reports-public` con copias saneadas y URL pública satisface el consumo de lista/detalle y el tratamiento de caché.
 - Resolver si se acepta `Photo.expiresAt: null` para URLs públicas sin vencimiento mediante un PR separado desde `main`; revisión requerida de Agus, Valen y Fran. Hasta que se mergee, lista y detalle siguen incumpliendo el contrato y no se marcan como terminados.
-- Revisar la orientación de fotos JPEG: hoy se elimina EXIF sin rotar los píxeles y no se añade tratamiento de orientación.
+- Resolver el tratamiento de orientación con Fran: el saneador elimina EXIF sin rotar los píxeles; si el navegador no recomprime ni orienta la imagen antes de enviarla, puede mostrarse girada.
+- Definir un límite de reportes o claims por usuario. Hoy una cuenta autenticada puede crear muchos claims y subir hasta 4 MiB por objeto en cada uno; no hay cuota ni rate limit por usuario.
+- Aprobar un PR de contrato separado, abierto desde `main`, para proponer `Photo.expiresAt` nullable; requiere revisión de Agus, Valen y Fran. Hasta entonces lista y detalle siguen incumpliendo el contrato y ningún test debe ocultarlo.
 - Confirmar el límite de tamaño del multipart desde cliente considerando el límite del hosting, y si el cliente comprimirá antes de enviar.
 - Revisar e integrar PR #3 antes que el backend; luego cambiar solamente el adaptador de dirección.
 - Definir con qué mecanismo autorizado se limpiarán huérfanas mediante Storage API; no se implementa en SQL.

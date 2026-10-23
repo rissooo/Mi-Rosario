@@ -57,6 +57,7 @@ function createPublishSupabase(options: {
   const uploadedPaths: string[] = [];
   const removedPaths: string[] = [];
   const queriedTables: string[] = [];
+  const events: string[] = [];
   const reportRow = {
     id: reservedReportId,
     title: publishFields.title,
@@ -80,6 +81,7 @@ function createPublishSupabase(options: {
   const supabase = {
     rpc: async (name: string, params: unknown) => {
       rpcCalls.push({ name, params });
+      events.push(`rpc:${name}`);
       if (name === "claim_idempotency_key") {
         return {
           data: options.claimResult ?? { action: "CLAIMED", status: "in_progress", reportId: reservedReportId },
@@ -107,13 +109,15 @@ function createPublishSupabase(options: {
       return query;
     },
     storage: {
-      from: () => ({
+      from: (bucket: string) => ({
         upload: async (path: string) => {
           uploadedPaths.push(path);
+          events.push(`upload:${bucket}`);
           return { data: { path }, error: null };
         },
         remove: async (paths: string[]) => {
           removedPaths.push(...paths);
+          events.push(`remove:${bucket}`);
           return { data: paths, error: null };
         },
         getPublicUrl: (path: string) => ({
@@ -123,7 +127,7 @@ function createPublishSupabase(options: {
     },
   } as unknown as SupabaseClient;
 
-  return { supabase, rpcCalls, uploadedPaths, removedPaths, queriedTables };
+  return { supabase, rpcCalls, uploadedPaths, removedPaths, queriedTables, events };
 }
 
 test("encodeCursor and decodeCursor round-trip faithfully", () => {
@@ -388,6 +392,11 @@ test("un rechazo definitivo antes del commit compensa la foto y marca la clave f
     "claim_idempotency_key",
     "publish_report",
     "fail_idempotency_key",
+  ]);
+  assert.deepEqual(mock.events.slice(-3), [
+    "remove:reports-originals",
+    "remove:reports-public",
+    "rpc:fail_idempotency_key",
   ]);
   assert.deepEqual(mock.rpcCalls[2].params, {
     p_key: idempotencyKey,

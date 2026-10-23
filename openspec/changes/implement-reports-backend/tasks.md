@@ -49,5 +49,5 @@
 - Revisar los DTO comunes y la integración de `Location.address` con Fran cuando se integre el PR #3.
 - Confirmar con Fran la presentación de copias públicas saneadas, los límites de carga, retención y estrategia futura de huérfanas.
 - Confirmar con Valen que la visión no requiere persistir fotos ni metadatos de análisis.
-- Confirmar el rol de Francisco y si requiere una revisión antes de integrar.
+- Revisar con Fran (también llamado Francisco) las decisiones de Storage y el orden de integración del PR #3.
 - Ejecutar todas las verificaciones de seguridad solo en Supabase local; nunca contra producción.

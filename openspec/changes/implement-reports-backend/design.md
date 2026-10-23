@@ -71,7 +71,7 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 
 ## Decisiones abiertas
 
-### Fran — interfaz y mapas
+### Fran (también llamado Francisco) — interfaz y mapas
 
 - Confirmar que `reports-public` con copias saneadas y URL pública satisface el consumo de lista/detalle y el tratamiento de caché.
 - Confirmar el límite de tamaño del multipart desde cliente considerando el límite del hosting, y si el cliente comprimirá antes de enviar.
@@ -83,12 +83,9 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 
 - Confirmar que análisis de visión permanece en memoria y que el flujo de reportes no necesita persistir resultados ni metadatos de análisis. El backend no recibe ni almacena datos de visión en este cambio.
 
-### Francisco
-
-- No aparece identificado en las instrucciones del equipo ni en la documentación consultada. Confirmar su rol y si debe revisar o decidir alguna política antes de integrar; no se le asigna una decisión técnica por inferencia.
-
 ## Pedidos a otros módulos
 
 - **Fran / PR #3 (`add-report-address`):** integrar primero el contrato `Location.address` compartido. No editar `lib/contracts/**`, `docs/contracts.md` ni `package.json` desde este cambio. Hasta el merge, el backend mantiene su adaptador local.
 - **Fran / Storage:** revisar la decisión provisoria de lectura pública de copias saneadas y acordar consumo/cache, tamaño de request y limpieza por Storage API.
 - **Valen / visión:** confirmar el límite de datos en memoria, sin pedir cambios en `lib/vision/**` dentro de este cambio.
+- **Agus / seguridad de fotos públicas:** las políticas pueden vincular una carga a un claim propio `in_progress`, pero Postgres/Storage no pueden comprobar que el contenido público perdió sus metadatos. Como el RPC y Storage usan el rol `authenticated`, un cliente puede invocarlos directamente y omitir el saneamiento del handler. Acordar la amenaza aceptable y una forma de impedirlo antes de habilitar el bucket público; no hay una comprobación de bytes en estas migraciones.

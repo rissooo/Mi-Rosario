@@ -1,6 +1,6 @@
--- Migration: 20261023000005_public_reports_view.sql
--- Description: Creates the secure public.public_reports view omitting private author identities
--- and granting SELECT to anon and authenticated.
+-- Proyecta solo campos públicos de las etapas ciudadanas del MVP.
+
+REVOKE ALL PRIVILEGES ON TABLE public.reports FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE VIEW public.public_reports
 WITH (security_invoker = false) AS
@@ -18,19 +18,11 @@ SELECT
   r.created_at,
   r.updated_at,
   r.corroborated_at,
-  r.resolved_at,
-  r.storage_path,
-  r.mime_type,
-  r.byte_size,
-  COALESCE(c.confirmation_count, 0)::integer AS confirmation_count,
-  public.get_confirmation_threshold()::integer AS threshold
-FROM public.reports r
-LEFT JOIN (
-  SELECT report_id, count(*)::integer AS confirmation_count
-  FROM public.report_confirmations
-  GROUP BY report_id
-) c ON c.report_id = r.id
-WHERE r.status IN ('pending', 'citizen-verification', 'resolved');
+  r.photo_public_path,
+  r.confirmation_count,
+  r.confirmation_threshold
+FROM public.reports AS r
+WHERE r.status IN ('pending', 'citizen-verification');
 
--- Grant read access to both anonymous visitors and authenticated citizens
-GRANT SELECT ON public.public_reports TO anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE public.public_reports FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.public_reports TO anon, authenticated;

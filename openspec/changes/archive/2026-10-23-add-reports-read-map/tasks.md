@@ -31,7 +31,7 @@
 ## 5. Verificación integral
 
 - [x] 5.1 Correr `npm.cmd run lint`, `npm.cmd exec -- tsc --noEmit --incremental false`, `npm.cmd run check:contracts`, `node app/components/map/check-map-data.mjs`, `npm.cmd run build`, `openspec.cmd validate add-reports-read-map --strict` y `git diff --check`. Verificar que todo pasa.
-- [ ] 5.2 Probar `/mapa` en un celular real o en la emulación de 360 px: sin scroll horizontal, gestos táctiles, marcadores, detalle completo, "Falta de luz" sin lenguaje de inseguridad, aviso de datos de ejemplo. Verificar dejando capturas como evidencia para el PR.
+- [x] 5.2 Probar `/mapa` en un celular real o en la emulación de 360 px: sin scroll horizontal, gestos táctiles, marcadores, detalle completo, "Falta de luz" sin lenguaje de inseguridad, aviso de datos de ejemplo. Verificar dejando capturas como evidencia para el PR.
 - [x] 5.3 Listar todos los archivos modificados y marcar los compartidos (`package.json` y `package-lock.json`). Verificar que `git status` no muestra cambios en `lib/contracts/`, `app/page.tsx`, `app/layout.tsx`, `app/globals.css`, `next.config.ts`, `utils/supabase/` ni en las configuraciones de los asistentes.
 
 ## Workflow follow-up

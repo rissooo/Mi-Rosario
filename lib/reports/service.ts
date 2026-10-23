@@ -6,7 +6,6 @@ import {
   type Location,
   type Photo,
   type Report,
-  type ReportFields,
   type ReportList,
   type ReportListQuery,
   type ReportStage,
@@ -65,8 +64,8 @@ type DbReportRow = {
   status: string;
   latitude: number;
   longitude: number;
-  street?: string | null;
-  street_number?: number | null;
+  street: string;
+  street_number: number | null;
   created_at: string;
   updated_at: string;
   corroborated_at?: string | null;
@@ -86,19 +85,14 @@ export function mapRowToReport(
   const count = row.confirmation_count ?? 0;
   const threshold = row.threshold ?? 3;
 
-  // Build Location object supporting address if street is present
   const location: Location = {
     latitude: row.latitude,
     longitude: row.longitude,
-    ...(row.street
-      ? {
-          address: {
-            street: row.street,
-            number: row.street_number ?? null,
-          },
-        }
-      : {}),
-  } as Location;
+    address: {
+      street: row.street,
+      number: row.street_number,
+    },
+  };
 
   const photo: Photo = {
     id: row.id as UUID,

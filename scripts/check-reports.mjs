@@ -14,6 +14,7 @@ try {
     join(root, "tests/idempotency.test.ts"),
     join(root, "tests/confirmations.test.ts"),
     join(root, "tests/service.test.ts"),
+    join(root, "tests/list-query.test.ts"),
   ];
 
   const program = ts.createProgram(testFiles, {

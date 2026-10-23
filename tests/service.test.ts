@@ -33,7 +33,7 @@ test("decodeCursor returns null on corrupted or invalid string", () => {
 });
 
 test("mapRowToReport creates contract-compliant Report DTO", () => {
-  const rowWithoutAddress = {
+  const row = {
     id: "10000000-0000-4000-8000-000000000001",
     title: "Bache profundo en la calle",
     description: "Bache grande en el carril derecho.",
@@ -42,8 +42,8 @@ test("mapRowToReport creates contract-compliant Report DTO", () => {
     status: "pending",
     latitude: -32.9468,
     longitude: -60.6393,
-    street: null,
-    street_number: null,
+    street: "Córdoba",
+    street_number: 1250,
     created_at: "2026-10-22T10:00:00.000Z",
     updated_at: "2026-10-22T10:00:00.000Z",
     corroborated_at: null,
@@ -56,33 +56,111 @@ test("mapRowToReport creates contract-compliant Report DTO", () => {
   };
 
   const report = mapRowToReport(
-    rowWithoutAddress,
+    row,
     "https://example.invalid/signed/photo.jpg",
     "2026-10-22T11:00:00.000Z",
   );
 
   const validation = validateReport(report);
   assert.equal(validation.valid, true);
-  assert.equal(report.id, rowWithoutAddress.id);
+  assert.equal(report.id, row.id);
   assert.equal(report.citizenVerification.confirmationCount, 2);
   assert.equal(report.citizenVerification.threshold, 3);
   assert.equal(report.citizenVerification.corroborated, false);
+  assert.deepEqual(report.location.address, { street: "Córdoba", number: 1250 });
+});
 
-  // When street is present, address is mapped
-  const rowWithAddress = {
-    ...rowWithoutAddress,
+test("getReportDetailService devuelve siempre la dirección del reporte", async () => {
+  const row = {
+    id: "10000000-0000-4000-8000-000000000001",
+    title: "Bache profundo en la calle",
+    description: "Bache grande en el carril derecho.",
+    category_id: "pothole",
+    severity: "high",
+    status: "pending",
+    latitude: -32.9468,
+    longitude: -60.6393,
     street: "Córdoba",
     street_number: 1250,
+    created_at: "2026-10-22T10:00:00.000Z",
+    updated_at: "2026-10-22T10:00:00.000Z",
+    corroborated_at: null,
+    resolved_at: null,
+    storage_path: "user-1/10000000-0000-4000-8000-000000000001/original.jpg",
+    mime_type: "image/jpeg",
+    byte_size: 2048,
+    confirmation_count: 2,
+    threshold: 3,
   };
-  const reportWithAddress = mapRowToReport(
-    rowWithAddress,
-    "https://example.invalid/signed/photo.jpg",
-    "2026-10-22T11:00:00.000Z",
-  );
-  assert.deepEqual(
-    (reportWithAddress.location as { address?: { street: string; number: number | null } }).address,
-    { street: "Córdoba", number: 1250 },
-  );
+  const mockSupabase = {
+    from: () => ({
+      select: () => ({
+        eq: () => ({ single: async () => ({ data: row, error: null }) }),
+      }),
+    }),
+    storage: {
+      from: () => ({
+        createSignedUrls: async (paths: string[]) => ({
+          data: paths.map((path) => ({ path, signedUrl: "https://example.invalid/photo.jpg" })),
+          error: null,
+        }),
+      }),
+    },
+  } as unknown as SupabaseClient;
+
+  const response = await getReportDetailService(mockSupabase, row.id);
+  assert.equal(response.httpStatus, 200);
+  assert.ok(response.result.data);
+  if (response.result.data) {
+    assert.deepEqual(response.result.data.location.address, { street: "Córdoba", number: 1250 });
+  }
+});
+
+test("listReportsService devuelve siempre la dirección de cada reporte", async () => {
+  const row = {
+    id: "10000000-0000-4000-8000-000000000001",
+    title: "Bache profundo en la calle",
+    description: "Bache grande en el carril derecho.",
+    category_id: "pothole",
+    severity: "high",
+    status: "pending",
+    latitude: -32.9468,
+    longitude: -60.6393,
+    street: "Córdoba",
+    street_number: 1250,
+    created_at: "2026-10-22T10:00:00.000Z",
+    updated_at: "2026-10-22T10:00:00.000Z",
+    corroborated_at: null,
+    resolved_at: null,
+    storage_path: "user-1/10000000-0000-4000-8000-000000000001/original.jpg",
+    mime_type: "image/jpeg",
+    byte_size: 2048,
+    confirmation_count: 2,
+    threshold: 3,
+  };
+  const query = {
+    select: () => query,
+    order: () => query,
+    limit: async () => ({ data: [row], error: null }),
+  };
+  const mockSupabase = {
+    from: () => query,
+    storage: {
+      from: () => ({
+        createSignedUrls: async (paths: string[]) => ({
+          data: paths.map((path) => ({ path, signedUrl: "https://example.invalid/photo.jpg" })),
+          error: null,
+        }),
+      }),
+    },
+  } as unknown as SupabaseClient;
+
+  const response = await listReportsService(mockSupabase, {});
+  assert.equal(response.httpStatus, 200);
+  assert.ok(response.result.data);
+  if (response.result.data) {
+    assert.deepEqual(response.result.data.items[0].location.address, { street: "Córdoba", number: 1250 });
+  }
 });
 
 test("getReportDetailService returns 404 for missing report", async () => {

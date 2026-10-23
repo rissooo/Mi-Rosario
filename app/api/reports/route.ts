@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import type { CategoryId } from "@/lib/contracts/categories";
-import type { ReportListQuery, ReportStage } from "@/lib/contracts/reports";
+import { parseReportsListRequest } from "@/lib/reports/list-query";
 import { listReportsService, publishReportService } from "@/lib/reports/service";
 import { createClient } from "@/utils/supabase/server";
 
@@ -58,26 +57,14 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const parsedQuery = parseReportsListRequest(new URL(request.url).searchParams);
+    if (!parsedQuery.valid) {
+      return NextResponse.json(parsedQuery.result, { status: parsedQuery.httpStatus });
+    }
+
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);
-
-    const { searchParams } = new URL(request.url);
-    const categoryId = (searchParams.get("categoryId") as CategoryId) || undefined;
-    const status = (searchParams.get("status") as ReportStage) || undefined;
-    const bbox = searchParams.get("bbox") || undefined;
-    const limitParam = searchParams.get("limit");
-    const limit = limitParam ? Number.parseInt(limitParam, 10) : undefined;
-    const cursor = searchParams.get("cursor") || undefined;
-
-    const query: ReportListQuery = {
-      ...(categoryId ? { categoryId } : {}),
-      ...(status ? { status } : {}),
-      ...(bbox ? { bbox } : {}),
-      ...(limit !== undefined && !Number.isNaN(limit) ? { limit } : {}),
-      ...(cursor ? { cursor } : {}),
-    };
-
-    const { httpStatus, result } = await listReportsService(supabase, query);
+    const { httpStatus, result } = await listReportsService(supabase, parsedQuery.query);
 
     return NextResponse.json(result, { status: httpStatus });
   } catch (err: unknown) {

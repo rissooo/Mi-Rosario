@@ -1,4 +1,4 @@
-/** Catalog IDs are stable. Extending the active catalog requires product review. */
+/** Los IDs del catálogo son estables. Ampliar el catálogo activo requiere una revisión de producto. */
 export type CategoryId = string;
 export type InitialMvpCategoryId =
   | "pothole"

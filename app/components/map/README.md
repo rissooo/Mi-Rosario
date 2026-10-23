@@ -1,7 +1,7 @@
-# Map boundary — Fran
+# Límite del mapa — Fran
 
-Reserved for the separate interface change. No map library, component or route is added here.
+Reservado para el change de interfaz aparte. Acá no se agrega ninguna librería de mapas, componente ni ruta.
 
-Keep the existing root `app/` structure. Consult installed Next.js documentation before choosing the browser-only Leaflet boundary. Future viewport queries consume all cursor pages and use `categoryId`, four-stage `status` and a validated bounding box.
+Mantené la estructura existente de `app/` en la raíz. Consultá la documentación de Next.js instalada antes de definir el límite de Leaflet, que funciona solo en el navegador. Las futuras consultas por área visible recorren todas las páginas del cursor y usan `categoryId`, el `status` de cuatro etapas y un bounding box validado.
 
-Institutional steps are unavailable in real MVP data. Never show synthetic municipal/resolved examples as official activity. Isolated fixtures must retain the label “Simulación - sin aval municipal”. See `docs/contracts.md` for integration dependencies.
+Las etapas institucionales no están disponibles en los datos reales del MVP. Nunca muestres ejemplos sintéticos municipales o resueltos como actividad oficial. Los fixtures aislados tienen que conservar la etiqueta "Simulación - sin aval municipal". Ver `docs/contracts.md` para las dependencias de integración.

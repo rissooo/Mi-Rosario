@@ -1,154 +1,154 @@
-# Shared architecture and contract sheet
+# Hoja de arquitectura y contratos compartidos
 
-This package prepares independent work by Valen (AI), Agus (backend) and Fran (frontend). It supplies TypeScript DTOs, pure validators and synthetic examples. **No HTTP handler, database table, Storage operation, Gemini integration, map or screen is implemented.** A passing fixture test does not prove service behavior, idempotency, concurrency or authorization.
+Este paquete prepara el trabajo independiente de Valen (IA), Agus (backend) y Fran (frontend). Aporta DTO de TypeScript, validadores puros y ejemplos sintéticos. **No se implementa ningún handler HTTP, tabla de base de datos, operación de Storage, integración con Gemini, mapa ni pantalla.** Que un test de fixtures pase no prueba el comportamiento del servicio, la idempotencia, la concurrencia ni la autorización.
 
-## Decision record
+## Registro de decisiones
 
-The user approved the architecture implementation, four categories, severity criteria, an original publication photo, initial citizen threshold 3 and the four-stage model. `openspec/config.yaml` now contains all four categories and a quoted proposal rule; previous references to a narrower context/YAML defect have been resolved without changing config in this implementation.
+El usuario aprobó la implementación de la arquitectura, las cuatro categorías, los criterios de gravedad, una foto original al publicar, el umbral ciudadano inicial de 3 y el modelo de cuatro etapas. `openspec/config.yaml` ya contiene las cuatro categorías y una regla de proposal entre comillas; las referencias anteriores a un defecto más acotado de contexto o de YAML quedaron resueltas sin cambiar la configuración en esta implementación.
 
-| Decision | State |
+| Decisión | Estado |
 | --- | --- |
-| Four initial active category IDs and manual selection | Approved |
-| Severity low/medium/high with editable Gemini suggestions | Approved |
-| Original photo stored only by backend on explicit publication | Approved; future implementation |
-| Three distinct authenticated non-author confirmations | Approved; backend-configurable threshold |
-| Automatic pending → citizen-verification at effective threshold | Approved; future atomic database implementation |
-| Independent institutional evidence; no municipal operations in MVP | Approved scope boundary |
-| Title length 5–120 Unicode code points | Provisional; used only for contract evaluation until product approval |
-| Original-photo retention and account deletion | Pending production decision |
-| Policy versioning/retroactive treatment when changing threshold | Pending operational decision; initial threshold 3 is approved |
-| Institutional identity/role mapping and compatible future scope | Pending post-MVP decision |
+| Cuatro IDs de categorías activas iniciales y selección manual | Aprobada |
+| Gravedad low/medium/high con sugerencias de Gemini editables | Aprobada |
+| Foto original guardada solo por el backend al publicar explícitamente | Aprobada; implementación futura |
+| Tres confirmaciones de cuentas autenticadas distintas que no sean el autor | Aprobada; umbral configurable en el backend |
+| Paso automático de pending a citizen-verification al llegar al umbral efectivo | Aprobada; implementación atómica futura en la base de datos |
+| Evidencia institucional independiente; sin operaciones municipales en el MVP | Límite de alcance aprobado |
+| Largo del título de 5 a 120 code points Unicode | Provisorio; solo para evaluar el contrato hasta que se apruebe en producto |
+| Retención de fotos originales y borrado de cuentas | Decisión de producción pendiente |
+| Versionado de la política y tratamiento retroactivo al cambiar el umbral | Decisión operativa pendiente; el umbral inicial de 3 está aprobado |
+| Mapeo de identidad y roles institucionales y alcance futuro compatible | Decisión pendiente para después del MVP |
 
-No approval/review by Agus or Fran is inferred from user approval or generated files. Their contract review and individual onboarding checks are outstanding.
+No se da por hecha ninguna aprobación ni revisión de Agus o Fran a partir de la aprobación del usuario o de los archivos generados. Sus revisiones del contrato y sus verificaciones individuales de incorporación siguen pendientes.
 
-## Package entry points
+## Puntos de entrada del paquete
 
-| File | Exports / purpose |
+| Archivo | Exporta / para qué sirve |
 | --- | --- |
-| `lib/contracts/categories.ts` | Extensible `CategoryId`, explicit `InitialMvpCategoryId`, catalog and active-membership check |
-| `lib/contracts/reports.ts` | Severity/criteria, stages/labels, publication, original-file input, safe photo presentation, report/query/list and private confirmation DTOs |
-| `lib/contracts/vision.ts` | Nullable suggestion, analysis request/response, deadline constant |
-| `lib/contracts/errors.ts` | Shared error codes/status mapping and exclusive `ApiResult<T>` envelope |
-| `lib/contracts/validation.ts` | Pure runtime validation/parsing; no network, session, database or provider dependency |
-| `lib/contracts/fixtures.ts` | Synthetic valid/error examples and isolated institutional simulations |
+| `lib/contracts/categories.ts` | `CategoryId` extensible, `InitialMvpCategoryId` explícito, catálogo y verificación de categoría activa |
+| `lib/contracts/reports.ts` | Gravedad y criterios, etapas y etiquetas, publicación, archivo original, presentación segura de la foto, DTO de reporte, consulta y lista, y de confirmación privada |
+| `lib/contracts/vision.ts` | Sugerencia que puede ser nula, request/response del análisis, constante de tiempo límite |
+| `lib/contracts/errors.ts` | Códigos de error compartidos, mapeo a status HTTP y sobre exclusivo `ApiResult<T>` |
+| `lib/contracts/validation.ts` | Validación y parseo puros en ejecución; sin dependencias de red, sesión, base de datos ni proveedores |
+| `lib/contracts/fixtures.ts` | Ejemplos sintéticos válidos y de error, y simulaciones institucionales aisladas |
 
-Import named exports from these files. Browser consumers must not import repositories, provider adapters or server Supabase clients. No SDK is required to use the contracts.
+Importá las exportaciones con nombre de estos archivos. El código del navegador no debe importar repositorios, adaptadores de proveedores ni clientes de Supabase del servidor. No hace falta ningún SDK para usar los contratos.
 
-## Catalog and severity
+## Catálogo y gravedad
 
-| ID | Label | Manual / AI suggestion |
+| ID | Etiqueta | Manual / sugerencia de IA |
 | --- | --- | --- |
-| `pothole` | Baches | Both |
-| `missing-light` | Falta de luz | Both |
-| `damaged-sidewalk` | Veredas dañadas | Both |
-| `faulty-traffic-light` | Semáforos defectuosos | Both, subject to evidence limits |
+| `pothole` | Baches | Ambas |
+| `missing-light` | Falta de luz | Ambas |
+| `damaged-sidewalk` | Veredas dañadas | Ambas |
+| `faulty-traffic-light` | Semáforos defectuosos | Ambas, según los límites de la evidencia |
 
-Exactly these four entries are active. IDs retain lowercase English kebab-case and the legacy IDs remain unchanged. A future reviewed catalog can add entries; a TypeScript string alone never authorizes a category. Validators reject unknown/inactive IDs. No generic “other” category exists.
+Exactamente estas cuatro entradas están activas. Los IDs se mantienen en inglés, en minúsculas y kebab-case, y los IDs existentes no cambian. Un catálogo futuro revisado puede agregar entradas; un string de TypeScript por sí solo nunca habilita una categoría. Los validadores rechazan IDs desconocidos o inactivos. No existe una categoría genérica "otro".
 
-Gemini can return `categoryId: null` when uncertain. All four manual selections remain available; publication requires an active category. A photograph does not necessarily prove a traffic light is malfunctioning: uncertain fixtures return null and invite citizen-declared observations in the editable description. Those observations are not photographic proof or municipal endorsement. Use “falta de luz”; do not infer insecurity from lighting images.
+Gemini puede devolver `categoryId: null` cuando no está seguro. Las cuatro opciones manuales siguen disponibles; para publicar hace falta una categoría activa. Una foto no necesariamente prueba que un semáforo funcione mal: los fixtures inciertos devuelven null e invitan al vecino a describir lo que observó en la descripción editable. Esas observaciones no son una prueba fotográfica ni un aval municipal. Usá "falta de luz"; no infieras inseguridad a partir de imágenes de alumbrado.
 
-| Value | Label | Criterion |
+| Valor | Etiqueta | Criterio |
 | --- | --- | --- |
 | `low` | Baja | Molestia o deterioro menor. |
 | `medium` | Media | Puede dificultar la circulación o el uso del espacio público. |
 | `high` | Alta | Riesgo importante para personas o vehículos. |
 
-AI severity is nullable; the citizen corrects/selects it before publication. Published severity is required and has exactly those three values. Severity never implies verification or resolution.
+La gravedad sugerida por la IA puede ser nula; el vecino la corrige o la elige antes de publicar. La gravedad publicada es obligatoria y tiene exactamente esos tres valores. La gravedad nunca implica verificación ni resolución.
 
-## Input and output contracts
+## Contratos de entrada y salida
 
-`ReportFields` requires title, description, categoryId, severity, location `{ latitude, longitude }` and `reviewed: true`. `PublishReportRequest` adds one original `File`; serialize report fields as the multipart `report` JSON field, with the file in `image` and a required UUID `Idempotency-Key` header. The key is scoped to account + operation in the future backend.
+`ReportFields` exige título, descripción, categoryId, gravedad, ubicación `{ latitude, longitude }` y `reviewed: true`. `PublishReportRequest` agrega un `File` original: los campos del reporte se serializan en el campo JSON `report` del multipart, el archivo va en `image` y hace falta el header `Idempotency-Key` con un UUID. En el futuro backend, la clave tiene alcance por cuenta y operación.
 
-`Report` adds server-owned ID, status, photo, UTC creation/update timestamps, citizen verification facts, institutional availability/evidence and nullable resolution time. It has no email, private author identity, original object path or publication bookkeeping. `Photo` contains ID, authorized HTTPS viewing URL, URL expiration, MIME and byte size. The URL represents a safe viewing derivative; the unchanged original remains private. Synthetic URLs use `example.invalid` and are intentionally not fetchable photographs.
+`Report` agrega el ID asignado por el servidor, el estado, la foto, las fechas UTC de creación y actualización, los datos de verificación ciudadana, la disponibilidad y la evidencia institucional y la fecha de resolución, que puede ser nula. No incluye email, identidad privada del autor, ruta del objeto original ni datos internos de la publicación. `Photo` contiene el ID, la URL HTTPS autorizada para ver la foto, el vencimiento de esa URL, el MIME y el tamaño en bytes. La URL apunta a una versión segura para ver; el original sin cambios sigue siendo privado. Las URLs sintéticas usan `example.invalid` y, a propósito, no apuntan a fotos reales.
 
-`CitizenVerification` returns `confirmationCount`, effective positive-integer `threshold`, `policyStatus: 'approved'` and `corroborated`. Frontend renders server-owned facts; it must not compute authoritative transitions from the exported initial threshold constant.
+`CitizenVerification` devuelve `confirmationCount`, el `threshold` efectivo (entero positivo), `policyStatus: 'approved'` y `corroborated`. El frontend muestra los datos que define el servidor; no debe calcular transiciones a partir de la constante exportada del umbral inicial.
 
-`MyConfirmation` contains reportId, authoritative status, confirmed/confirmedAt, canConfirm/reason and citizenVerification. This response is private and no-store. Reason precedence for display is resolved, author, already-confirmed, then null. The mutation response additionally guarantees confirmed true.
+`MyConfirmation` contiene reportId, el estado según el servidor, confirmed/confirmedAt, canConfirm/reason y citizenVerification. Esta respuesta es privada y no se cachea. La prioridad de los motivos para mostrar es: resolved, author, already-confirmed y, por último, null. La respuesta de la mutación además garantiza confirmed en true.
 
-## Planned HTTP boundary — not implemented
+## Límite HTTP planificado — sin implementar
 
-| Owner | Method / path | Input | Success |
+| Responsable | Método / ruta | Entrada | Éxito |
 | --- | --- | --- | --- |
-| Valen | POST `/api/vision/analyze` | Authenticated multipart image | 200 `{ data: { suggestion } }` |
-| Agus | POST `/api/reports` | Authenticated multipart + idempotency header | 201 first completion, 200 completed replay, `{ data: Report }` |
-| Agus | GET `/api/reports` | Public categoryId/status/bbox/limit/cursor | 200 `{ data: { items, nextCursor } }` |
-| Agus | GET `/api/reports/{id}` | Public UUID | 200 `{ data: Report }` |
-| Agus | GET `/api/reports/{id}/confirmations/me` | Authenticated UUID | 200 `{ data: MyConfirmation }` |
-| Agus | POST `/api/reports/{id}/confirmations` | Authenticated UUID and `{}` | 201 first insert, 200 existing, `{ data: ConfirmationResult }` |
+| Valen | POST `/api/vision/analyze` | Imagen multipart con sesión | 200 `{ data: { suggestion } }` |
+| Agus | POST `/api/reports` | Multipart con sesión + header de idempotencia | 201 la primera vez, 200 al repetir una ya completada, `{ data: Report }` |
+| Agus | GET `/api/reports` | Público: categoryId/status/bbox/limit/cursor | 200 `{ data: { items, nextCursor } }` |
+| Agus | GET `/api/reports/{id}` | Público: UUID | 200 `{ data: Report }` |
+| Agus | GET `/api/reports/{id}/confirmations/me` | UUID con sesión | 200 `{ data: MyConfirmation }` |
+| Agus | POST `/api/reports/{id}/confirmations` | UUID con sesión y `{}` | 201 la primera inserción, 200 si ya existía, `{ data: ConfirmationResult }` |
 
-Errors use `{ error: { code, message, fieldErrors? } }`; messages are Spanish. `ERROR_STATUS` defines the error-to-status mapping. Framework-generated 405 responses are transport exceptions. The future HTTP boundary must verify identity and same-origin mutation protection rather than accept caller identity fields.
+Los errores usan `{ error: { code, message, fieldErrors? } }`; los mensajes están en español. `ERROR_STATUS` define qué status HTTP corresponde a cada error. Las respuestas 405 que genera el framework son excepciones del transporte. El futuro límite HTTP tiene que verificar la identidad y proteger las mutaciones con verificación de mismo origen, en lugar de aceptar campos de identidad enviados por quien llama.
 
-File/field errors must be classified at the future transport boundary:
+Los errores de archivo y de campos se clasifican en el futuro límite del transporte:
 
-| HTTP | Code | Meaning |
+| HTTP | Código | Significado |
 | --- | --- | --- |
-| 413 | PAYLOAD_TOO_LARGE | Original file exceeds 4 MiB or total request exceeds the applicable body limit |
-| 415 | UNSUPPORTED_MEDIA_TYPE | Request/file format is unsupported or the image content does not match the supported declared format |
-| 422 | VALIDATION_ERROR | Supported, size-acceptable input has invalid fields, missing photo, invalid category/coordinates, or a supported image that cannot be decoded |
+| 413 | PAYLOAD_TOO_LARGE | El archivo original supera los 4 MiB o el request total supera el límite que corresponde |
+| 415 | UNSUPPORTED_MEDIA_TYPE | El formato del request o del archivo no está soportado, o el contenido de la imagen no coincide con el formato declarado |
+| 422 | VALIDATION_ERROR | Entrada soportada y de tamaño aceptable con campos inválidos, sin foto, con categoría o coordenadas inválidas, o con una imagen soportada que no se puede decodificar |
 
-Malformed JSON remains 400 INVALID_JSON. `validatePublishReportRequest` is a generic pure field/metadata validator: its failures currently use VALIDATION_ERROR, including size/MIME metadata failures. Do not blindly map every failure from that function to 422 in a handler. The future HTTP adapter must enforce request/file size and supported media first and return the corresponding 413/415; then use field validation for 422. Actual streaming limits, signatures and decoding remain backend/vision feature work. These notes and fixtures do not implement a transport adapter.
+Un JSON mal formado sigue siendo 400 INVALID_JSON. `validatePublishReportRequest` es un validador puro y genérico de campos y metadatos: hoy sus fallas usan VALIDATION_ERROR, incluidas las de tamaño y MIME. No traduzcas a ciegas todas las fallas de esa función a 422 en un handler. El futuro adaptador HTTP tiene que controlar primero el tamaño del request y del archivo y el tipo soportado, y devolver el 413 o 415 que corresponda; después, usar la validación de campos para el 422. Los límites reales de streaming, las firmas y la decodificación quedan para las funcionalidades de backend y visión. Estas notas y fixtures no implementan un adaptador de transporte.
 
-## Validation implemented here
+## Validación implementada acá
 
-- Strict object shapes, required fields and nested unknown-field rejection; trimmed text by Unicode code points. Provisional title 5–120, description 10–1000.
-- Active categories, three severities, four-stage type, finite coordinate ranges (not a Rosario municipality polygon), UUID and valid UTC calendar dates.
-- Required original `File`, allowed MIME and 1 byte–4 MiB metadata. **These checks do not decode the image or verify its signature.** Real content/decoded-image limits and total multipart size belong to the future transport. Constants document 4 MiB + 64 KiB total multipart and 16 KiB JSON limits.
-- Nullable AI fields, at most five warnings of 1–200 code points, no authoritative location/status/identity fields in suggestions. Validators check structure, not the truth of text, confidence, language or visual evidence.
-- Public DTO shapes, HTTPS photo URL syntax, threshold/count/corroboration consistency, and default rejection of institutional data in MVP report examples. Validating a URL never authorizes its access.
-- Private confirmation shapes/eligibility consistency, exclusive success/error envelopes, and example error codes/messages.
-- List query allowed keys, repeats, numeric limits (1–100/default 50), bounding-box ranges/order, opaque cursor version/UUID/time and normalized filter binding. `parseReportListQuery` consumes URLSearchParams; `validateReportListQuery` consumes typed numeric limits. Both the request and cursor's bbox are validated and normalized to comma-separated JavaScript number strings. Decimal spellings, whitespace, exponent notation and negative zero that represent the same numbers share a cursor (for example, 0,0,1,1 and 0.0,-0,1e0,1). No rounding/tolerance is used: different numeric bounds, category/status changes, absent versus present bbox, invalid ranges and unknown/repeated fields remain rejected. Use the returned normalized bbox when constructing a cursor in the future backend. Cursor decoding is neither authorization nor pagination execution.
+- Formas estrictas de objetos, campos obligatorios y rechazo de campos desconocidos anidados; texto recortado y medido en code points Unicode. Título provisorio de 5 a 120, descripción de 10 a 1000.
+- Categorías activas, tres gravedades, tipo de cuatro etapas, rangos finitos de coordenadas (no el polígono del municipio de Rosario), UUID y fechas UTC de calendario válidas.
+- `File` original obligatorio, MIME permitido y metadatos de 1 byte a 4 MiB. **Estas verificaciones no decodifican la imagen ni verifican su firma.** Los límites reales del contenido y de la imagen decodificada y el tamaño total del multipart quedan para el futuro transporte. Las constantes documentan los límites de 4 MiB + 64 KiB para el multipart total y de 16 KiB para el JSON.
+- Campos de IA que pueden ser nulos, hasta cinco aclaraciones de 1 a 200 code points, y sugerencias sin campos de ubicación, estado ni identidad. Los validadores revisan la estructura, no la veracidad del texto, la confianza, el idioma ni la evidencia visual.
+- Formas de los DTO públicos, sintaxis de la URL HTTPS de la foto, coherencia entre umbral, cantidad y corroboración, y rechazo por defecto de datos institucionales en los ejemplos de reportes del MVP. Validar una URL nunca autoriza el acceso a ella.
+- Formas de la confirmación privada y coherencia de la elegibilidad, sobres exclusivos de éxito y error, y códigos y mensajes de error de ejemplo.
+- Consulta de lista: claves permitidas, repeticiones, límites numéricos (de 1 a 100, 50 por defecto), rangos y orden del bounding box, versión/UUID/fecha del cursor opaco y vinculación con los filtros normalizados. `parseReportListQuery` recibe URLSearchParams; `validateReportListQuery` recibe límites numéricos tipados. Tanto el bbox del request como el del cursor se validan y se normalizan como números de JavaScript separados por comas. Escrituras decimales, espacios, notación exponencial y cero negativo que representan los mismos números comparten cursor (por ejemplo, 0,0,1,1 y 0.0,-0,1e0,1). No se redondea ni se usa tolerancia: se siguen rechazando límites numéricos distintos, cambios de categoría o estado, bbox ausente frente a presente, rangos inválidos y campos desconocidos o repetidos. Usá el bbox normalizado que se devuelve al armar un cursor en el futuro backend. Decodificar un cursor no es autorizar ni ejecutar la paginación.
 
-`validateApiResult(value, validator)` validates a response envelope; `validateReport`, `validateAnalyzeImageResponse`, `validateMyConfirmation` and `validateReportList` validate their payloads. Validation returns `{ valid: true, value }` or `{ valid: false, error }`. Request normalization returns trimmed fields without modifying input. Pure validators must not be mistaken for session checks, RLS or business mutations.
+`validateApiResult(value, validator)` valida el sobre de una respuesta; `validateReport`, `validateAnalyzeImageResponse`, `validateMyConfirmation` y `validateReportList` validan su contenido. La validación devuelve `{ valid: true, value }` o `{ valid: false, error }`. La normalización de requests devuelve los campos recortados sin modificar la entrada. Los validadores puros no deben confundirse con verificaciones de sesión, RLS ni mutaciones de negocio.
 
-## Confirmation and retry contract cases
+## Casos de contrato de confirmaciones y reintentos
 
-Citizen confirmations are unique per authenticated non-author account/report. At effective threshold T (initially 3), the future backend atomically checks/records the insertion and advances pending to citizen-verification. Municipal evidence stays unavailable in the MVP. Duplicate insertions must not increase counts or repeat transitions. Examples include a server-returned threshold of 5 to avoid frontend coupling to 3.
+Las confirmaciones ciudadanas son únicas por cuenta autenticada (que no sea el autor) y por reporte. Al llegar al umbral efectivo T (inicialmente 3), el futuro backend verifica y registra la inserción de forma atómica y pasa el reporte de pending a citizen-verification. La evidencia municipal sigue sin estar disponible en el MVP. Las inserciones duplicadas no deben aumentar la cantidad ni repetir transiciones. Los ejemplos incluyen un umbral de 5 devuelto por el servidor para que el frontend no dependa del 3.
 
-| Publication case | Planned result |
+| Caso de publicación | Resultado planificado |
 | --- | --- |
-| First completed operation | 201, new report |
-| Same key/account and identical validated fields/photo fingerprint | 200, same report ID; viewing URL may refresh |
-| Key reused with different payload | 409 IDEMPOTENCY_CONFLICT |
-| Same operation still active | 409 PUBLICATION_IN_PROGRESS; Retry-After |
-| Temporary photo storage failure | 503 STORAGE_UNAVAILABLE; retain file/draft/key |
+| Primera operación completada | 201, reporte nuevo |
+| Misma clave y cuenta, y mismos campos validados y huella de la foto | 200, mismo ID de reporte; la URL para ver puede renovarse |
+| Clave reutilizada con otro contenido | 409 IDEMPOTENCY_CONFLICT |
+| La misma operación sigue en curso | 409 PUBLICATION_IN_PROGRESS; Retry-After |
+| Falla temporal del almacenamiento de la foto | 503 STORAGE_UNAVAILABLE; conservar archivo, borrador y clave |
 
-The future backend stores operation fingerprints/leases, publishes only after the original reference and safe viewing resource are ready, and reconciles partial DB/Storage failures. Cleanup must never delete a committed original. This package does not implement those operations.
+El futuro backend guarda huellas y bloqueos de las operaciones, publica solo cuando la referencia al original y la versión segura para ver están listas, y reconcilia fallas parciales entre la base de datos y Storage. La limpieza nunca debe borrar un original ya confirmado. Este paquete no implementa esas operaciones.
 
-Confirmation mutation precedence: authenticate, find published report, reject author (403), replay existing confirmation (200 even after resolution), reject a new confirmation on resolved (409), otherwise insert uniquely (201; concurrent duplicates 200). Anonymous is 401, missing/unpublished report 404. Future database transactions must serialize insertion against resolution. No real resolution endpoint is part of this MVP.
+Orden de la mutación de confirmación: autenticar, buscar el reporte publicado, rechazar al autor (403), repetir una confirmación existente (200, incluso después de la resolución), rechazar una confirmación nueva en un reporte resuelto (409) y, si no, insertar sin duplicar (201; duplicados concurrentes, 200). Sin sesión es 401; reporte inexistente o no publicado, 404. Las futuras transacciones de la base de datos tienen que serializar la inserción frente a la resolución. Este MVP no incluye ningún endpoint real de resolución.
 
-The complete four-stage vocabulary remains unchanged. `MVP_REPORT_STAGES` / `MvpReportStage` contain only pending and citizen-verification. `FUTURE_INSTITUTIONAL_STAGES` / `FutureInstitutionalStage` contain municipal-verification and resolved, reserved for future authorized institutional functionality. Real MVP reports keep institutional availability unavailable and evidence/resolution times null.
+El vocabulario completo de cuatro etapas no cambia. `MVP_REPORT_STAGES` / `MvpReportStage` contienen solo pending y citizen-verification. `FUTURE_INSTITUTIONAL_STAGES` / `FutureInstitutionalStage` contienen municipal-verification y resolved, reservadas para una futura funcionalidad institucional autorizada. Los reportes reales del MVP mantienen la disponibilidad institucional como no disponible y las fechas de evidencia y resolución en null.
 
-`validateReport`, `validateMyConfirmation` and `validateConfirmationResult` reject institutional states by default. Only isolated, clearly labeled future-simulation checks pass `{ allowInstitutionalSimulation: true }`; a request must never control that option. It is validation of example data, not a role grant or municipal feature switch. The existing documented replay-after-resolution behavior is retained in labeled future contract cases and checked explicitly under that simulation option. Query status vocabulary still describes all four stages; querying a future stage neither enables a mutation nor invents institutional records.
+`validateReport`, `validateMyConfirmation` y `validateConfirmationResult` rechazan los estados institucionales por defecto. Solo las verificaciones aisladas y bien identificadas de simulaciones futuras pasan `{ allowInstitutionalSimulation: true }`; un request nunca debe controlar esa opción. Es una validación de datos de ejemplo, no un permiso de rol ni un interruptor de funcionalidad municipal. El comportamiento documentado de repetir una confirmación después de la resolución se mantiene en casos de contrato futuros identificados y se verifica explícitamente con esa opción de simulación. El vocabulario de estados de la consulta sigue describiendo las cuatro etapas; consultar una etapa futura no habilita ninguna mutación ni inventa registros institucionales.
 
-## Fixture review sheet
+## Hoja de revisión de fixtures
 
-Open this document on a mobile viewport with Fran; no application screen is required for baseline review. Cross-check the exported fixture objects with the DTOs:
+Abrí este documento en una pantalla de celular con Fran; no hace falta ninguna pantalla de la aplicación para revisar la base. Compará los objetos de fixtures exportados con los DTO:
 
-Each exported example is independent of other examples, including nested locations, photos, verification facts and response bodies. Use `cloneFixture(example)` for a private editable draft in each consumer/test rather than editing the exported singleton itself. Copies use structuredClone, preserving mutable draft behavior without sharing references; this does not alter the DTOs. Tests check object-graph isolation and direct edits of nested data as well as independent consumer copies.
+Cada ejemplo exportado es independiente de los demás, incluidas las ubicaciones, fotos, datos de verificación y cuerpos de respuesta anidados. Usá `cloneFixture(example)` para tener un borrador editable propio en cada consumidor o test, en lugar de editar el objeto exportado. Las copias usan structuredClone, que mantiene el comportamiento de un borrador editable sin compartir referencias; esto no cambia los DTO. Los tests verifican el aislamiento del grafo de objetos y las ediciones directas de datos anidados, además de las copias independientes de cada consumidor.
 
-| Example | What to inspect |
+| Ejemplo | Qué revisar |
 | --- | --- |
-| `REPORT_FIELDS_FIXTURES` / `REPORT_FIXTURES` | One per category, editable fields, required photo presentation and all marker-detail fields |
-| `SUGGESTION_FIXTURES` | Four valid suggestions; uncertain category and traffic-light operation return null with a warning |
-| `ANALYSIS_ERROR_CASES` | Spanish error envelopes: ANALYSIS_FAILED/502, ANALYSIS_UNAVAILABLE/503 and ANALYSIS_TIMEOUT/504; no provider call or actual timeout is executed |
-| `VERIFICATION_FIXTURES` | Below/at 3, alternate threshold 5, high severity without institutional evidence |
-| `MY_CONFIRMATION_FIXTURES` | Eligible, author excluded, already confirmed, at threshold |
-| `PUBLICATION_CASES` / `CONFIRMATION_CASES` | Documented status/envelope shapes, duplicates and failures; not executed services |
-| `INSTITUTIONAL_SIMULATIONS` | Isolated and labeled “Simulación - sin aval municipal”; not production seed or official data |
+| `REPORT_FIELDS_FIXTURES` / `REPORT_FIXTURES` | Uno por categoría, campos editables, presentación obligatoria de la foto y todos los campos del detalle del marcador |
+| `SUGGESTION_FIXTURES` | Cuatro sugerencias válidas; la categoría incierta y el funcionamiento del semáforo devuelven null con una aclaración |
+| `ANALYSIS_ERROR_CASES` | Sobres de error en español: ANALYSIS_FAILED/502, ANALYSIS_UNAVAILABLE/503 y ANALYSIS_TIMEOUT/504; no se llama a ningún proveedor ni se espera un tiempo límite real |
+| `VERIFICATION_FIXTURES` | Por debajo de 3 y en 3, umbral alternativo de 5, gravedad alta sin evidencia institucional |
+| `MY_CONFIRMATION_FIXTURES` | Habilitado, autor excluido, ya confirmado, en el umbral |
+| `PUBLICATION_CASES` / `CONFIRMATION_CASES` | Formas documentadas de status y sobres, duplicados y fallas; no son servicios ejecutados |
+| `INSTITUTIONAL_SIMULATIONS` | Aisladas y con la etiqueta "Simulación - sin aval municipal"; no son datos iniciales de producción ni datos oficiales |
 
-**Mobile review and teammate acceptance are pending.** The tests validate data structure and consistency only. No actual marker is selected, image rendered, municipal action performed or citizen identity counted by a backend.
+**La revisión en celular y la aceptación de los compañeros están pendientes.** Los tests validan solo la estructura y la coherencia de los datos. Ningún backend selecciona marcadores, muestra imágenes, ejecuta acciones municipales ni cuenta identidades de vecinos.
 
-## Branches, PRs and next changes
+## Ramas, PRs y próximos changes
 
-| Owner / branch | Next feature and dependencies |
+| Responsable / rama | Próxima funcionalidad y dependencias |
 | --- | --- |
-| Valen / `feature/gemini-vision` | Author functional vision specs; validated server-only Gemini adapter and analyze transport; depends on shared catalog/errors/auth; no report/Storage writes |
-| Agus / `feature/reports-backend` | Author functional backend specs; inspect real schema; additive migrations/RLS, original Storage/derivative, publication/recovery, list/detail and corroborations; depends on shared contracts/fixtures |
-| Fran / `feature/interface-map` | Author functional UI specs; manual categories, reviewed suggestions, photo/retry flow and map/detail; starts with fixtures, integrates after providers pass runtime acceptance |
-| All / future institutional proposal | Scope/authority approval first; no MVP municipal accounts, action controls or mutation routes |
+| Valen / `feature/gemini-vision` | Escribir las specs funcionales de visión; adaptador de Gemini validado y solo en el servidor, y transporte del análisis; depende del catálogo, los errores y la autenticación compartidos; no escribe reportes ni en Storage |
+| Agus / `feature/reports-backend` | Escribir las specs funcionales del backend; revisar el esquema real; migraciones y RLS que solo agregan, Storage del original y su versión para ver, publicación y recuperación, lista y detalle, y corroboraciones; depende de los contratos y fixtures compartidos |
+| Fran / `feature/interface-map` | Escribir las specs funcionales de la interfaz; categorías manuales, sugerencias revisadas, flujo de foto y reintentos, y mapa y detalle; empieza con fixtures e integra cuando los proveedores pasen la aceptación en ejecución |
+| Todos / futura propuesta institucional | Primero aprobar el alcance y la autoridad; en el MVP no hay cuentas municipales, controles de acción ni rutas de mutación |
 
-Work on the reviewed baseline branch `chore/team-architecture`; proposed integration target is `main`. Owners update their own feature branches from the merged baseline. Use focused English Conventional Commits, OpenSpec-linked PRs explaining scope, dependencies, changed contracts and check results. UI feature PRs include mobile evidence. No commits, PR creation, pushes, merges or archive were authorized by this baseline implementation request.
+Se trabaja sobre la rama base revisada `chore/team-architecture`; el destino de integración propuesto es `main`. Cada responsable actualiza su propia rama de funcionalidad a partir de la base mergeada. Usá Conventional Commits enfocados y en español, y PRs enlazados con OpenSpec que expliquen el alcance, las dependencias, los contratos modificados y los resultados de las verificaciones. Los PRs de funcionalidades de interfaz incluyen evidencia en celular. Este pedido de implementación de la base no autorizó commits, creación de PRs, pushes, merges ni archive.
 
-Provider and consumer owners review boundary changes together. Assign one editor per PR for shared contracts, package files, proxy or instructions. Preserve other owners' changes; do not force-push their branches. Existing branch protection is not asserted. Archives happen only after each change's own requirements/tasks and review are satisfied. Baseline archive never claims endpoints/RLS/Storage/map functionality is delivered.
+Quienes proveen y quienes consumen revisan juntos los cambios en los límites. Asigná un solo editor por PR para contratos compartidos, archivos de paquetes, el proxy o las instrucciones. Conservá los cambios de los demás; no hagas force-push en sus ramas. No se afirma que haya protección de ramas configurada. Los archive se hacen solo cuando se cumplen los requisitos, las tareas y la revisión de cada change. Archivar la base nunca afirma que se entregaron endpoints, RLS, Storage ni el mapa.
 
-Agus must later test real authorization, self-confirmation rejection, unique/concurrent requests, publication recovery and private object access. Valen tests actual image decoding/provider errors and zero persistence. Fran tests actual mobile review, photo access/refresh, retry behavior and confirmation eligibility. None of that evidence can be supplied by this package's synthetic examples.
+Más adelante, Agus tiene que probar la autorización real, el rechazo de la autoconfirmación, los requests únicos y concurrentes, la recuperación de la publicación y el acceso privado a los objetos. Valen prueba la decodificación real de imágenes, los errores del proveedor y que no se guarde nada. Fran prueba la revisión real en celular, el acceso y la renovación de las fotos, los reintentos y la elegibilidad para confirmar. Ninguna de esas evidencias puede salir de los ejemplos sintéticos de este paquete.

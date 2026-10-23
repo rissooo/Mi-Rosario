@@ -157,7 +157,7 @@ export function validateUuid(value: unknown): ValidationResult<string> {
 export function validatePublicationHeaders(value: unknown): ValidationResult<{ "Idempotency-Key": string }> {
   const c = new Check(); const o = c.object(value, "", ["Idempotency-Key"]); c.uuid(o["Idempotency-Key"], "Idempotency-Key"); return c.result(value);
 }
-/** File metadata only. Decoding/signature/body limits belong to future server transport. */
+/** Solo metadatos del archivo. La decodificación, la firma y los límites del cuerpo corresponden al futuro transporte del servidor. */
 export function validatePublishReportRequest(value: unknown, options: ValidationOptions = {}): ValidationResult<PublishReportRequest> {
   const c = new Check(); const o = c.object(value, "", ["report", "image"]);
   const fields = reportFields(c, o.report, "report", options);
@@ -217,7 +217,7 @@ export function validateConfirmationResult(value: unknown, options: ValidationOp
   return { valid: true, value: { ...parsed.value, confirmed: true } };
 }
 
-/** Validate geographic bounds before producing their canonical numeric spelling. */
+/** Valida los límites geográficos antes de producir su escritura numérica canónica. */
 function normalizedBbox(c: Check, value: unknown, path: string): string | undefined {
   const parts = typeof value === "string" ? value.split(",") : [];
   const numbers = parts.map((part) => part.trim() === "" ? NaN : Number(part));
@@ -227,12 +227,12 @@ function normalizedBbox(c: Check, value: unknown, path: string): string | undefi
     c.issue(path, "Ingresá oeste,sur,este,norte con límites válidos.");
     return undefined;
   }
-  // No rounding: equivalent numbers share a form, distinct bounds stay distinct.
-  // String(-0) is "0", so negative zero also has a single representation.
+  // Sin redondeo: los números equivalentes comparten forma y los límites distintos siguen siendo distintos.
+  // String(-0) es "0", así que el cero negativo también tiene una sola representación.
   return numbers.map(String).join(",");
 }
 
-/** Versioned opaque cursor shape; decoding is validation, not trust or authorization. */
+/** Forma del cursor opaco con versión; decodificarlo es validar, no confiar ni autorizar. */
 function cursor(c: Check, value: unknown, path: string, filters?: Obj, options: ValidationOptions = {}) {
   try {
     if (typeof value !== "string" || value.length > 4096 || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error();

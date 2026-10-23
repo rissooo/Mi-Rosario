@@ -19,7 +19,7 @@ async function TodoList() {
 
 export default function Page() {
   return (
-    <Suspense fallback={<p>Loading todos...</p>}>
+    <Suspense fallback={<p>Cargando tareas...</p>}>
       <TodoList />
     </Suspense>
   );

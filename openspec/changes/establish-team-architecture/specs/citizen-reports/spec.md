@@ -2,131 +2,131 @@
 
 ## Purpose
 
-Define verifiable shared report-contract deliverables so future backend and map features can be specified independently without claiming they already exist.
+Define entregables verificables del contrato compartido de reportes, para que las futuras funcionalidades de backend y mapa se puedan especificar por separado sin afirmar que ya existen.
 
 ## ADDED Requirements
 
-### Requirement: Architecture contract scope
-The baseline SHALL supply report DTOs, validators, fixtures and documentation. Runtime endpoint, database, Storage and interface behavior SHALL be specified and verified by separate future feature changes, not represented as delivered by this baseline.
+### Requirement: Alcance del contrato de arquitectura
+La base SHALL aportar DTO, validadores, fixtures y documentación de reportes. El comportamiento en ejecución de endpoints, base de datos, Storage e interfaz SHALL especificarse y verificarse en changes funcionales futuros aparte, y no presentarse como entregado por esta base.
 
-#### Scenario: Architecture completion review
-- **WHEN** the team assesses this change for completion or archive
-- **THEN** it checks contract-package deliverables and collaboration tasks
-- **THEN** no deployed report capability is claimed solely because those artifacts pass
+#### Scenario: Revisión de finalización de la arquitectura
+- **WHEN** el equipo evalúa si este change está completo o se puede archivar
+- **THEN** revisa los entregables del paquete de contratos y las tareas de colaboración
+- **THEN** no se afirma ninguna capacidad de reportes desplegada solo porque esos artefactos pasen
 
-### Requirement: Expanded report and map detail definitions
-The contract package SHALL define photo, title, description, catalog category, citizen-reported severity, stage, location, timestamps and citizen confirmation facts for public map detail, without private account or Storage references.
+### Requirement: Definiciones ampliadas del reporte y del detalle del mapa
+El paquete de contratos SHALL definir foto, título, descripción, categoría del catálogo, gravedad informada por el vecino, etapa, ubicación, fechas y datos de confirmaciones ciudadanas para el detalle público del mapa, sin referencias privadas a cuentas ni a Storage.
 
-#### Scenario: Detail fixture
-- **WHEN** Fran validates a synthetic map-detail fixture
-- **THEN** the shared DTO represents every detail field, including a photograph presentation URL and its expiration
-- **THEN** the fixture excludes email, author identity and private object paths
+#### Scenario: Fixture de detalle
+- **WHEN** Fran valida un fixture sintético del detalle del mapa
+- **THEN** el DTO compartido representa todos los campos del detalle, incluida la URL de presentación de la foto y su vencimiento
+- **THEN** el fixture no incluye email, identidad del autor ni rutas de objetos privados
 
-### Requirement: Reviewed catalog and validation definitions
-The package SHALL define exactly four initially active MVP categories: pothole, missing-light, damaged-sidewalk and faulty-traffic-light, preserving existing IDs. It SHALL support manual selection of all four, active-catalog validation and future reviewed extensions, alongside the approved severity constraints and proposed title limits.
+### Requirement: Definiciones revisadas del catálogo y la validación
+El paquete SHALL definir exactamente cuatro categorías iniciales activas del MVP: pothole, missing-light, damaged-sidewalk y faulty-traffic-light, conservando los IDs existentes. SHALL permitir elegir a mano las cuatro, validar contra el catálogo activo y sumar extensiones futuras revisadas, junto con las restricciones de gravedad aprobadas y los límites de título propuestos.
 
-#### Scenario: Approved manual category fixtures
-- **WHEN** contract fixtures exercise manual report selection for each initial category
-- **THEN** the catalog maps pothole to Baches, missing-light to Falta de luz, damaged-sidewalk to Veredas dañadas and faulty-traffic-light to Semáforos defectuosos
-- **THEN** publication accepts each reviewed active ID without requiring a Gemini suggestion and rejects null, unknown or inactive categories
+#### Scenario: Fixtures de categorías manuales aprobadas
+- **WHEN** los fixtures de contrato prueban la selección manual de cada categoría inicial
+- **THEN** el catálogo asocia pothole con Baches, missing-light con Falta de luz, damaged-sidewalk con Veredas dañadas y faulty-traffic-light con Semáforos defectuosos
+- **THEN** la publicación acepta cada ID activo revisado sin exigir una sugerencia de Gemini y rechaza categorías nulas, desconocidas o inactivas
 
-#### Scenario: Identifier compatibility
-- **WHEN** the four-entry seed catalog is checked
-- **THEN** pothole and missing-light retain their identifiers and the new identifiers use lowercase English kebab-case
-- **THEN** no fifth category or implicit other option is active
+#### Scenario: Compatibilidad de identificadores
+- **WHEN** se revisa el catálogo inicial de cuatro entradas
+- **THEN** pothole y missing-light conservan sus identificadores y los nuevos usan kebab-case en inglés y en minúsculas
+- **THEN** no hay activa una quinta categoría ni una opción implícita "otro"
 
-#### Scenario: Category extension review
-- **WHEN** a contributor proposes a category beyond the approved four
-- **THEN** documentation requires scope approval and coordinated catalog, validator, AI and fixture review before activation
+#### Scenario: Revisión de una ampliación de categorías
+- **WHEN** alguien propone una categoría además de las cuatro aprobadas
+- **THEN** la documentación exige aprobar el alcance y revisar en conjunto el catálogo, los validadores, la IA y los fixtures antes de activarla
 
-#### Scenario: Project context reconciliation
-- **WHEN** the team checks readiness for implementation
-- **THEN** documentation records that the separately authorized openspec/config.yaml update now matches all four approved categories
-- **THEN** the four-category product decision remains approved and config.yaml is preserved by the baseline implementation
+#### Scenario: Conciliación del contexto del proyecto
+- **WHEN** el equipo revisa si está listo para implementar
+- **THEN** la documentación registra que la actualización de openspec/config.yaml, autorizada aparte, ya coincide con las cuatro categorías aprobadas
+- **THEN** la decisión de producto de cuatro categorías sigue aprobada y la implementación de la base conserva config.yaml
 
-#### Scenario: Invalid contract input
-- **WHEN** contract checks exercise unknown fields, inactive categories, bad coordinates or unreviewed publication
-- **THEN** validators reject them using documented field errors
+#### Scenario: Entrada de contrato inválida
+- **WHEN** las verificaciones del contrato prueban campos desconocidos, categorías inactivas, coordenadas incorrectas o publicaciones sin revisar
+- **THEN** los validadores las rechazan con los errores de campo documentados
 
-### Requirement: Backend-owned original photograph contract
-The package SHALL define explicit multipart publication with reviewed fields, one original photo and a stable idempotency key. Documentation SHALL assign original persistence, report association, private access, safe presentation, recovery and cleanup to the backend.
+### Requirement: Contrato de la foto original a cargo del backend
+El paquete SHALL definir la publicación explícita en multipart con campos revisados, una foto original y una clave de idempotencia estable. La documentación SHALL asignar al backend guardar el original, asociarlo al reporte, el acceso privado, la presentación segura, la recuperación y la limpieza.
 
-#### Scenario: Publication reference fixture
-- **WHEN** Agus reviews the publication contract and failure examples
-- **THEN** they require a stored original associated with every published report and prohibit AI persistence
-- **THEN** incomplete operations remain unpublished and retries cannot create another report or delete a committed photo
+#### Scenario: Fixture de referencia de publicación
+- **WHEN** Agus revisa el contrato de publicación y los ejemplos de falla
+- **THEN** exigen un original guardado y asociado a cada reporte publicado, y prohíben que la IA guarde algo
+- **THEN** las operaciones incompletas quedan sin publicar y los reintentos no pueden crear otro reporte ni borrar una foto ya confirmada
 
-### Requirement: Publication retry definitions
-The package SHALL document account-scoped idempotency with payload fingerprints, conflict detection and concurrency handling. It SHALL distinguish completed replays, in-progress operations, transient storage errors and new intentional publications.
+### Requirement: Definiciones de reintentos de publicación
+El paquete SHALL documentar la idempotencia por cuenta con huellas del contenido, detección de conflictos y manejo de concurrencia. SHALL distinguir las repeticiones de operaciones completadas, las operaciones en curso, los errores temporales de almacenamiento y las publicaciones nuevas intencionales.
 
-#### Scenario: Repeated publication cases
-- **WHEN** contract fixtures exercise the same key with the same payload, a changed payload and a concurrent request
-- **THEN** they respectively describe 200 with the same report, 409 IDEMPOTENCY_CONFLICT and 409 PUBLICATION_IN_PROGRESS
-- **THEN** first completion is 201 and temporary Storage unavailability is 503 STORAGE_UNAVAILABLE
+#### Scenario: Casos de publicación repetida
+- **WHEN** los fixtures de contrato prueban la misma clave con el mismo contenido, con contenido distinto y con un request concurrente
+- **THEN** describen, respectivamente, 200 con el mismo reporte, 409 IDEMPOTENCY_CONFLICT y 409 PUBLICATION_IN_PROGRESS
+- **THEN** la primera finalización es 201 y la falta temporal de Storage es 503 STORAGE_UNAVAILABLE
 
-### Requirement: Independent citizen corroboration definitions
-The package SHALL define the approved initial threshold of 3 valid confirmations from distinct authenticated non-author users, backend-configurable without interface changes. Contracts SHALL define an automatic atomic pending-to-citizen-verification transition at the effective threshold, independent of institutional evidence.
+### Requirement: Definiciones de corroboración ciudadana independiente
+El paquete SHALL definir el umbral inicial aprobado de 3 confirmaciones válidas de usuarios autenticados distintos que no sean el autor, configurable en el backend sin cambios en la interfaz. Los contratos SHALL definir una transición automática y atómica de pending a citizen-verification al llegar al umbral efectivo, independiente de la evidencia institucional.
 
-#### Scenario: Approved initial threshold fixture
-- **WHEN** a pending-report fixture reaches 3 valid confirmations from 3 distinct authenticated non-author users at the initial threshold of 3
-- **THEN** it shows threshold 3, policyStatus approved, corroborated true and citizen-verification stage
-- **THEN** below the threshold it remains pending, and neither municipal verification nor resolution results from the count
+#### Scenario: Fixture del umbral inicial aprobado
+- **WHEN** un fixture de reporte pendiente llega a 3 confirmaciones válidas de 3 usuarios autenticados distintos que no son el autor, con el umbral inicial de 3
+- **THEN** muestra umbral 3, policyStatus approved, corroborated true y la etapa citizen-verification
+- **THEN** por debajo del umbral sigue pending, y la cantidad no produce verificación municipal ni resolución
 
-#### Scenario: Invalid and repeated corroborations
-- **WHEN** contract examples include the author, anonymous requests, repeated requests or concurrent requests from the same account
-- **THEN** only one accepted confirmation per distinct authenticated non-author account contributes to the count
-- **THEN** backend acceptance references require atomic count and stage updates without repeated transitions
+#### Scenario: Corroboraciones inválidas y repetidas
+- **WHEN** los ejemplos de contrato incluyen al autor, requests sin sesión, requests repetidos o requests concurrentes de la misma cuenta
+- **THEN** solo cuenta una confirmación aceptada por cada cuenta autenticada distinta que no sea el autor
+- **THEN** las referencias de aceptación del backend exigen actualizar la cantidad y la etapa de forma atómica, sin transiciones repetidas
 
-#### Scenario: Backend-configured threshold
-- **WHEN** a contract fixture returns a positive backend threshold T different from 3
-- **THEN** it uses T for the pending-to-citizen-verification boundary and supplies the effective threshold and authoritative state to the interface
-- **THEN** no frontend release or hardcoded threshold is required
+#### Scenario: Umbral configurado en el backend
+- **WHEN** un fixture de contrato devuelve un umbral positivo T del backend distinto de 3
+- **THEN** usa T como límite entre pending y citizen-verification y le entrega a la interfaz el umbral efectivo y el estado según el servidor
+- **THEN** no hace falta una nueva versión del frontend ni un umbral fijo en el código
 
-### Requirement: Approved severity contract
-The package SHALL define Severity as low, medium or high, labeled baja, media or alta. It SHALL document the approved impact criteria, editable nullable Gemini suggestions and a required valid severity at publication. Severity SHALL NOT automatically grant municipal verification.
+### Requirement: Contrato de gravedad aprobado
+El paquete SHALL definir Severity como low, medium o high, con las etiquetas baja, media o alta. SHALL documentar los criterios de impacto aprobados, las sugerencias de Gemini editables y que pueden ser nulas, y una gravedad válida obligatoria al publicar. La gravedad SHALL NOT otorgar automáticamente una verificación municipal.
 
-#### Scenario: Severity criteria fixtures
-- **WHEN** the shared severity definitions are reviewed
-- **THEN** baja means molestia o deterioro menor, media means puede dificultar la circulación o el uso del espacio público, and alta means riesgo importante para personas o vehículos
-- **THEN** publication validators reject null, unassessed and values outside the three-level scale
+#### Scenario: Fixtures de criterios de gravedad
+- **WHEN** se revisan las definiciones compartidas de gravedad
+- **THEN** baja significa molestia o deterioro menor, media significa que puede dificultar la circulación o el uso del espacio público, y alta significa riesgo importante para personas o vehículos
+- **THEN** los validadores de publicación rechazan null, unassessed y los valores fuera de la escala de tres niveles
 
-#### Scenario: High severity is not municipal authority
-- **WHEN** a contract fixture represents severity high
-- **THEN** its institutional verification remains independent and no municipal stage is inferred from severity
+#### Scenario: Gravedad alta no es autoridad municipal
+- **WHEN** un fixture de contrato representa una gravedad alta
+- **THEN** su verificación institucional sigue siendo independiente y no se infiere ninguna etapa municipal a partir de la gravedad
 
-### Requirement: Current-account confirmation query definition
-The package SHALL define authenticated GET /api/reports/{id}/confirmations/me with status, confirmed, confirmedAt, canConfirm, reason and citizen-verification facts including the effective backend threshold. It SHALL keep this response private and separate from public report detail.
+### Requirement: Definición de la consulta de confirmación de la cuenta actual
+El paquete SHALL definir GET /api/reports/{id}/confirmations/me con sesión, con status, confirmed, confirmedAt, canConfirm, reason y los datos de verificación ciudadana, incluido el umbral efectivo del backend. SHALL mantener esta respuesta privada y separada del detalle público del reporte.
 
-#### Scenario: Confirmation state fixtures
-- **WHEN** fixture checks cover an unconfirmed account, confirmed account, author and resolved report
-- **THEN** each has a documented eligibility result without revealing another account
-- **THEN** anonymous and missing-report examples use 401 and 404 respectively
+#### Scenario: Fixtures del estado de confirmación
+- **WHEN** las verificaciones de fixtures cubren una cuenta sin confirmar, una cuenta que ya confirmó, al autor y un reporte resuelto
+- **THEN** cada caso tiene un resultado de elegibilidad documentado sin revelar otra cuenta
+- **THEN** los ejemplos sin sesión y de reporte inexistente usan 401 y 404, respectivamente
 
-### Requirement: Confirmation mutation precedence definition
-The package SHALL define author exclusion, database uniqueness and atomic new confirmations. Existing confirmations SHALL be documented as successful replays even after resolution; new confirmations on resolved reports SHALL be rejected.
+### Requirement: Definición del orden de la mutación de confirmación
+El paquete SHALL definir la exclusión del autor, la unicidad en la base de datos y las confirmaciones nuevas atómicas. Las confirmaciones existentes SHALL documentarse como repeticiones exitosas, incluso después de la resolución; las confirmaciones nuevas en reportes resueltos SHALL rechazarse.
 
-#### Scenario: Confirmation edge cases
-- **WHEN** the contract check validates mutation examples
-- **THEN** author confirmation is 403 AUTHOR_CANNOT_CONFIRM, first qualifying insertion is 201 and a duplicate is 200
-- **THEN** an existing confirmation on a resolved report remains 200 while a new one is 409 REPORT_RESOLVED
+#### Scenario: Casos límite de confirmación
+- **WHEN** la verificación del contrato valida los ejemplos de mutación
+- **THEN** la confirmación del autor es 403 AUTHOR_CANNOT_CONFIRM, la primera inserción válida es 201 y un duplicado es 200
+- **THEN** una confirmación existente en un reporte resuelto sigue siendo 200, mientras que una nueva es 409 REPORT_RESOLVED
 
-### Requirement: Four-stage presentation and institutional boundary
-The package SHALL define pendiente, verificación ciudadana, verificación municipal and resuelto with independent citizen/institution facts. Municipal operations SHALL remain outside the MVP, and synthetic institutional records SHALL be labeled nonofficial simulation.
+### Requirement: Presentación de cuatro etapas y límite institucional
+El paquete SHALL definir pendiente, verificación ciudadana, verificación municipal y resuelto, con datos ciudadanos e institucionales independientes. Las operaciones municipales SHALL quedar fuera del MVP, y los registros institucionales sintéticos SHALL identificarse como simulaciones no oficiales.
 
-#### Scenario: Real MVP fixture
-- **WHEN** the package validates a production-shaped MVP example
-- **THEN** institutional verification is unavailable with no evidence or resolution timestamp
-- **THEN** the four-step presentation does not mark unavailable municipal or resolved steps as completed
+#### Scenario: Fixture real del MVP
+- **WHEN** el paquete valida un ejemplo del MVP con forma de producción
+- **THEN** la verificación institucional no está disponible, sin evidencia ni fecha de resolución
+- **THEN** la presentación de cuatro pasos no marca como completados los pasos municipal o resuelto, que no están disponibles
 
-#### Scenario: Future authority documentation
-- **WHEN** the team reviews the institutional roadmap
-- **THEN** municipal verification is reserved for authorized institutional accounts and closure additionally requires database-granted moderator/closure authority
-- **THEN** no role grants, municipal mutation endpoint or operative control is part of this MVP
+#### Scenario: Documentación de la autoridad futura
+- **WHEN** el equipo revisa la hoja de ruta institucional
+- **THEN** la verificación municipal queda reservada para cuentas institucionales autorizadas, y el cierre además requiere un permiso de moderador o de cierre otorgado en la base de datos
+- **THEN** este MVP no incluye permisos de rol, endpoints de mutación municipal ni controles operativos
 
-### Requirement: Database and transport boundary documentation
-The package SHALL document RLS, uniqueness, private projections, Storage policies, atomic publication finalization and the Spanish error envelope. Constraints SHALL be enforced beyond the interface in future feature acceptance tests.
+### Requirement: Documentación de los límites de base de datos y transporte
+El paquete SHALL documentar RLS, unicidad, proyecciones privadas, políticas de Storage, la finalización atómica de la publicación y el sobre de error en español. Las restricciones SHALL aplicarse más allá de la interfaz en los tests de aceptación de las funcionalidades futuras.
 
-#### Scenario: Backend handoff
-- **WHEN** Agus consumes the architecture handoff
-- **THEN** it identifies database and Storage checks for spoofing, self-confirmation, concurrent retries, private-object access and future resolution races
-- **THEN** actual migrations and runtime tests remain tasks of the separate backend feature change
+#### Scenario: Traspaso al backend
+- **WHEN** Agus toma el traspaso de la arquitectura
+- **THEN** identifica las verificaciones de base de datos y Storage para suplantación, autoconfirmación, reintentos concurrentes, acceso a objetos privados y futuras condiciones de carrera con la resolución
+- **THEN** las migraciones reales y los tests en ejecución siguen siendo tareas del change funcional de backend aparte

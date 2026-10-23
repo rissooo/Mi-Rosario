@@ -2,76 +2,76 @@
 
 ## Purpose
 
-Define an editable image-analysis contract package with clear non-persistence and publication boundaries for later vision implementation.
+Define un paquete de contratos editables para el análisis de imágenes, con límites claros de no persistencia y de publicación, para la futura implementación de visión.
 
 ## ADDED Requirements
 
-### Requirement: Analysis contract deliverables
-The baseline SHALL provide DTOs, validators, fixtures and documented HTTP definitions for POST /api/vision/analyze. A separate vision feature change SHALL own runtime requirements and provider integration before any implementation claim.
+### Requirement: Entregables del contrato de análisis
+La base SHALL aportar DTO, validadores, fixtures y definiciones HTTP documentadas para POST /api/vision/analyze. Un change funcional de visión aparte SHALL encargarse de los requisitos en ejecución y de la integración con el proveedor antes de afirmar que algo está implementado.
 
-#### Scenario: Contract package review
-- **WHEN** Valen reviews the baseline deliverables
-- **THEN** they define authenticated multipart image input, Spanish errors and validated suggestion output
-- **THEN** passing those checks does not claim that Gemini or the endpoint is deployed
+#### Scenario: Revisión del paquete de contratos
+- **WHEN** Valen revisa los entregables de la base
+- **THEN** definen la entrada de imagen multipart con sesión, los errores en español y la salida de sugerencia validada
+- **THEN** que esas verificaciones pasen no afirma que Gemini o el endpoint estén desplegados
 
-### Requirement: Expanded editable suggestion definitions
-The package SHALL define nullable title, description, active-catalog categoryId and severity suggestions plus warnings. The initial category catalog SHALL contain pothole, missing-light, damaged-sidewalk and faulty-traffic-light, shared with manual selection and publication validators and extensible through future review.
+### Requirement: Definiciones ampliadas de sugerencias editables
+El paquete SHALL definir sugerencias que pueden ser nulas para título, descripción, categoryId del catálogo activo y gravedad, más aclaraciones. El catálogo inicial SHALL contener pothole, missing-light, damaged-sidewalk y faulty-traffic-light, compartido con la selección manual y los validadores de publicación, y ampliable mediante una revisión futura.
 
-#### Scenario: Four-category suggestion fixtures
-- **WHEN** contract checks exercise a supported image example for each initial category
-- **THEN** valid suggestions use the corresponding active ID from the four-entry catalog
-- **THEN** Gemini output cannot activate or invent an additional category
+#### Scenario: Fixtures de sugerencia para las cuatro categorías
+- **WHEN** las verificaciones del contrato prueban un ejemplo de imagen soportada para cada categoría inicial
+- **THEN** las sugerencias válidas usan el ID activo correspondiente del catálogo de cuatro entradas
+- **THEN** la salida de Gemini no puede activar ni inventar una categoría adicional
 
-#### Scenario: Insufficient category confidence
-- **WHEN** a fixture cannot confidently determine an image category
-- **THEN** categoryId is null with an explanatory warning and all four manual selections remain available
-- **THEN** publication still requires a citizen-reviewed active category
+#### Scenario: Confianza insuficiente en la categoría
+- **WHEN** un fixture no puede determinar con confianza la categoría de una imagen
+- **THEN** categoryId es null con una aclaración explicativa, y las cuatro opciones manuales siguen disponibles
+- **THEN** la publicación sigue exigiendo una categoría activa revisada por el vecino
 
-#### Scenario: Lighting evidence boundary
-- **WHEN** an image fixture concerns lighting
-- **THEN** citizen-facing terminology remains falta de luz
-- **THEN** suggestions and warnings do not infer insecurity from the photograph
+#### Scenario: Límite de la evidencia de alumbrado
+- **WHEN** un fixture de imagen trata sobre alumbrado
+- **THEN** el término que ve el vecino sigue siendo falta de luz
+- **THEN** las sugerencias y aclaraciones no infieren inseguridad a partir de la foto
 
-#### Scenario: Traffic-light operating condition
-- **WHEN** a still-image fixture shows a traffic light but does not establish whether it works correctly
-- **THEN** analysis uses categoryId null rather than inventing a malfunction and asks for manual review and citizen-declared observations
-- **THEN** the citizen can select faulty-traffic-light and describe observed behavior without presenting that declaration as visual proof or municipal verification
+#### Scenario: Funcionamiento de un semáforo
+- **WHEN** un fixture de foto fija muestra un semáforo pero no permite saber si funciona bien
+- **THEN** el análisis usa categoryId null en lugar de inventar una falla, y pide revisión manual y que el vecino describa lo que observó
+- **THEN** el vecino puede elegir faulty-traffic-light y describir el comportamiento observado, sin presentar esa declaración como prueba visual ni como verificación municipal
 
-#### Scenario: Editable approved severity suggestion
-- **WHEN** a Gemini suggestion fixture provides severity
-- **THEN** the value is low, medium or high using the approved baja/media/alta criteria, or null when uncertain
-- **THEN** the citizen can correct it and must select a valid level before publication; severity never grants municipal verification
+#### Scenario: Sugerencia de gravedad aprobada y editable
+- **WHEN** un fixture de sugerencia de Gemini incluye una gravedad
+- **THEN** el valor es low, medium o high según los criterios aprobados de baja/media/alta, o null cuando no hay certeza
+- **THEN** el vecino puede corregirla y tiene que elegir un nivel válido antes de publicar; la gravedad nunca otorga verificación municipal
 
-#### Scenario: Uncertain output fixture
-- **WHEN** an analysis fixture cannot support a field
-- **THEN** that field is null and warnings explain the limitation
-- **THEN** all non-null values conform to reviewed catalog and field constraints
+#### Scenario: Fixture de salida incierta
+- **WHEN** un fixture de análisis no puede sostener un campo
+- **THEN** ese campo es null y las aclaraciones explican la limitación
+- **THEN** todos los valores no nulos cumplen las restricciones revisadas del catálogo y de los campos
 
-#### Scenario: Scope-sensitive category fixture
-- **WHEN** the validator receives an unsupported or inactive category identifier
-- **THEN** it rejects the provider structure
-- **THEN** adding new incident categories requires explicit scope/catalog review rather than arbitrary AI output
+#### Scenario: Fixture de categoría sensible al alcance
+- **WHEN** el validador recibe un identificador de categoría no soportado o inactivo
+- **THEN** rechaza la estructura del proveedor
+- **THEN** agregar categorías de incidentes nuevas requiere una revisión explícita del alcance y del catálogo, no una salida arbitraria de la IA
 
-### Requirement: No publication or photo persistence from analysis
-The documented analysis boundary SHALL prohibit report creation, confirmation writes and photo persistence. Only the backend publication contract SHALL own original-photo storage after explicit citizen publication.
+### Requirement: El análisis no publica ni guarda fotos
+El límite documentado del análisis SHALL prohibir crear reportes, registrar confirmaciones y guardar fotos. Solo el contrato de publicación del backend SHALL encargarse de guardar la foto original después de la publicación explícita del vecino.
 
-#### Scenario: Analysis-only review
-- **WHEN** a citizen only requests analysis in the future flow reference
-- **THEN** the documented outcome is an editable draft with no report or Storage object
-- **THEN** the original file remains available in the draft for a later separate publication request
+#### Scenario: Revisión solo con análisis
+- **WHEN** en la referencia del flujo futuro un vecino solo pide el análisis
+- **THEN** el resultado documentado es un borrador editable, sin reporte ni objeto en Storage
+- **THEN** el archivo original sigue disponible en el borrador para un pedido de publicación posterior y aparte
 
-### Requirement: Review and manual completion definitions
-The package SHALL document editing title, description, category, severity and location before publication. Analysis SHALL NOT supply authoritative location, official verification, final stage or an instruction to publish.
+### Requirement: Definiciones de revisión y carga manual
+El paquete SHALL documentar la edición de título, descripción, categoría, gravedad y ubicación antes de publicar. El análisis SHALL NOT aportar una ubicación definitiva, una verificación oficial, una etapa final ni una instrucción de publicar.
 
-#### Scenario: Failed analysis fixture
-- **WHEN** a timeout or provider failure fixture is selected
-- **THEN** the reference flow preserves original photo and draft, permits manual field completion and requires explicit publication
-- **THEN** skipping analysis does not remove the publication photograph requirement
+#### Scenario: Fixture de análisis fallido
+- **WHEN** se elige un fixture de tiempo agotado o de falla del proveedor
+- **THEN** el flujo de referencia conserva la foto original y el borrador, permite completar los campos a mano y exige una publicación explícita
+- **THEN** saltear el análisis no elimina el requisito de la foto para publicar
 
-### Requirement: Image and provider error definitions
-The package SHALL define one JPEG, PNG or WebP image up to 4 MiB, content validation, a 20-second provider deadline and private provider credentials. Raw images, secrets and provider diagnostics SHALL be excluded from error examples and fixtures.
+### Requirement: Definiciones de errores de imagen y del proveedor
+El paquete SHALL definir una imagen JPEG, PNG o WebP de hasta 4 MiB, la validación del contenido, un tiempo límite de 20 segundos para el proveedor y credenciales privadas del proveedor. Las imágenes sin procesar, los secretos y los diagnósticos del proveedor SHALL quedar fuera de los ejemplos de error y de los fixtures.
 
-#### Scenario: Analysis error contract check
-- **WHEN** fixtures exercise invalid input, unsupported media, excessive size, invalid provider output, service unavailability and timeout
-- **THEN** documented statuses/codes are 422 VALIDATION_ERROR, 415 UNSUPPORTED_MEDIA_TYPE, 413 PAYLOAD_TOO_LARGE, 502 ANALYSIS_FAILED, 503 ANALYSIS_UNAVAILABLE and 504 ANALYSIS_TIMEOUT
-- **THEN** no fixture exposes real citizen photographs or credentials
+#### Scenario: Verificación del contrato de errores del análisis
+- **WHEN** los fixtures prueban entrada inválida, formato no soportado, tamaño excesivo, salida inválida del proveedor, servicio no disponible y tiempo agotado
+- **THEN** los status y códigos documentados son 422 VALIDATION_ERROR, 415 UNSUPPORTED_MEDIA_TYPE, 413 PAYLOAD_TOO_LARGE, 502 ANALYSIS_FAILED, 503 ANALYSIS_UNAVAILABLE y 504 ANALYSIS_TIMEOUT
+- **THEN** ningún fixture expone fotos reales de vecinos ni credenciales

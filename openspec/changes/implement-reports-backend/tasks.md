@@ -1,58 +1,60 @@
 # Tareas
 
-## 1. Esquema y Storage
+Las casillas distinguen evidencia unitaria con simulación, inspección estática y ejecución contra base real. Las pruebas simuladas y estáticas no demuestran el comportamiento de PostgreSQL, RLS, Auth, Storage ni concurrencia.
 
-- [ ] 1.1 Ajustar migración de `reports` para estados MVP, threshold y count por reporte, validación de calle/número y rutas original/pública; verificar DDL e índices contra el esquema esperado.
-- [ ] 1.2 Configurar buckets privado/público con límites MIME/tamaño, política de carga pública ligada a clave propia activa y borrado de original solo antes de publicar; verificar políticas en el proyecto Supabase de pruebas.
-- [ ] 1.3 Asegurar RLS de `reports`, confirmaciones e idempotencia, revocar acceso directo y otorgar `SELECT` solo a la vista pública; inspeccionar roles/policies en el proyecto de pruebas.
-- [ ] 1.4 Crear `public_reports` sin identidad, ruta privada, MIME, tamaño ni campos institucionales, y con solo estados MVP; probar columnas y permisos con `anon` y `authenticated` en el proyecto de pruebas.
+## 1. Esquema, Storage y vista
 
-## 2. Idempotencia y publicación transaccional
+- [x] 1.1 Definir en migraciones el estado MVP, límites de campos, dirección, metadatos de la copia, conteo y umbral por reporte. Evidencia estática en `tests/migrations-static.test.mjs`; falta aplicarlo en el proyecto de pruebas en la nube.
+- [x] 1.2 Definir buckets, límites MIME/tamaño y policies de Storage ligadas a helpers que validan el claim activo del mismo usuario. Evidencia estática del SQL; falta verificar las policies efectivas en Storage.
+- [x] 1.3 Activar RLS en las tablas `public` creadas y limitar privilegios directos. Evidencia estática del SQL; falta consultar permisos y RLS efectivos en la nube.
+- [x] 1.4 Definir `public_reports` sin identidad, ruta original ni etapas institucionales, y con la ruta y metadatos de la copia pública. Evidencia estática del SQL; falta consultarla con `anon` y `authenticated`.
 
-- [ ] 2.1 Ajustar `idempotency_keys` para reservar y guardar `report_id` sin FK que impida reservar antes de insertar el reporte; verificar constraints e índices en el proyecto de pruebas.
-- [ ] 2.2 Rehacer `claim_idempotency_key` con `auth.uid()`, `SECURITY DEFINER`, `search_path` vacío, permisos solo `authenticated`, RLS activa y bloqueo fijo de tres minutos; probar claims y carreras en el proyecto de pruebas.
-- [ ] 2.3 Implementar `publish_report` y `fail_idempotency_key` con bloqueo de clave, validaciones de usuario/hash y actualización atómica; probar publicación, replay, propiedad y rollback en el proyecto de pruebas.
-- [ ] 2.4 Cambiar el servicio para publicar por RPC y compensar solo ante errores definitivos pre-commit; probar reintento con `report_id` estable y conservar fotos ante timeout simulado.
+## 2. Idempotencia y publicación
 
-## 3. Fotos y mapeo de DTOs
+- [x] 2.1 Reservar `report_id` en `claim_idempotency_key`, sin FK obligatoria, con índice único y bloqueo fijo de tres minutos. Evidencia estática en `tests/migrations-static.test.mjs` y pruebas simuladas de RPC.
+- [x] 2.2 Definir `claim_idempotency_key` con `auth.uid()`, `SECURITY DEFINER`, `search_path` vacío, RLS y permisos explícitos. Evidencia estática; falta probar permisos y carreras en la base.
+- [x] 2.3 Definir `publish_report` y `fail_idempotency_key` como RPC transaccionales; cotejar todas las claves de argumentos `.rpc()` contra las firmas SQL. Evidencia estática y simulada; falta probar commit, rollback y reintentos en PostgreSQL.
+- [x] 2.4 Publicar por RPC y compensar fotos antes de marcar la clave fallida solo ante errores definitivos previos al commit; conservarlas ante errores ambiguos o posteriores. Evidencia unitaria con simulación en `tests/service.test.ts`.
 
-- [x] 3.1 Generar en TypeScript la copia sin metadatos para JPEG/PNG/WebP sin decodificar la imagen; probar buffers mínimos con EXIF/texto y rechazo de formatos no analizables. Evidencia unitaria con buffers sintéticos en `tests/photos.test.ts`; no demuestra seguridad de Storage.
-- [ ] 3.2 Subir original y copia a rutas separadas, validar `IMAGE_MIME_TYPES` y construir `photo.url` desde la copia pública; probar privacidad de la original y URL pública.
-- [ ] 3.3 Crear `lib/reports/address.ts` con tipo local y mapear siempre `location.address` en lista/detalle sin cast ni fallback vacío; cubrir la forma del DTO sin editar contratos compartidos.
-- [ ] 3.4 Mantener cursor `{ version, createdAt, id, filters }`, filtros y orden actual; agregar tests de `listReportsService` para dirección, campos de foto y paginación.
-- [ ] 3.5 Resolver las seis advertencias de lint de variables sin usar sin cambiar el comportamiento; verificar lint y TypeScript.
+## 3. Fotos y DTOs
 
-## 4. Confirmaciones y rutas
+- [x] 3.1 Sanear JPEG, PNG y WebP sin decodificar, rechazar estructuras truncadas o inválidas y comprobar que se quitan metadatos. Evidencia unitaria con buffers sintéticos en `tests/photos.test.ts`.
+- [x] 3.2 Subir original privada y copia pública, validar `IMAGE_MIME_TYPES` y derivar la extensión de la ruta pública del MIME de la copia. Evidencia unitaria con cliente de Storage simulado; falta verificar el acceso real.
+- [x] 3.3 Usar `Location.address` del contrato en lista y detalle, sin adaptador, cast ni fallback vacío. Evidencia unitaria en `tests/service.test.ts`.
+- [x] 3.4 Mantener cursor, orden y filtros; cubrir `listReportsService`. Evidencia unitaria en `tests/service.test.ts` y `tests/list-query.test.ts`.
+- [x] 3.5 Limpiar advertencias de lint y verificar TypeScript. Evidencia de `npm run lint` y `npx tsc --noEmit` de este bloque.
 
-- [ ] 4.1 Actualizar `confirm_report` para leer el threshold del reporte, mantener el count bajo lock y quitar `get_confirmation_threshold()`; probar duplicado, autoría y precedencia de errores en el proyecto de pruebas.
-- [ ] 4.2 Implementar RLS y proyección pública conforme a la spec, incluyendo `REVOKE ALL` en `reports` y `GRANT SELECT` solo en la vista; verificar que inserción directa falla y la consulta pública funciona en el proyecto de pruebas.
-- [ ] 4.3 Actualizar publicación/lista/detalle para usar RPC y URL de foto pública, conservando contrato, cursor y respuestas; correr tests de servicios y rutas.
-- [ ] 4.4 Mantener rutas de confirmaciones alineadas con resultados de `confirm_report`; verificar estados HTTP y envelopes en pruebas.
+## 4. Rutas, confirmaciones y límites del contrato
 
-## 5. Pruebas de seguridad y concurrencia en Supabase de pruebas
+- [ ] 4.1 Verificar contra base real `confirm_report`: umbral de la fila, lock, una confirmación por usuario, estados permitidos y prioridad de resultados. Hay pruebas simuladas del mapeo de respuesta, pero no prueban SQL ni atomicidad.
+- [ ] 4.2 Probar contra base real RLS, `REVOKE`/`GRANT`, acceso a la vista e inserción directa rechazada.
+- [x] 4.3 Validar consultas GET con el validador estricto y el sobre de error del contrato. Evidencia unitaria en `tests/list-query.test.ts`.
+- [x] 4.4 Cubrir con simulación el mapeo de resultados de `confirm_report` y `get_my_confirmation`, incluidos conteo y umbral efectivos. No demuestra el SQL ni la atomicidad.
+- [x] 4.5 Mantener visible la desviación conocida de `Photo.expiresAt`: lista y detalle omiten el campo y el validador compartido los rechaza. Ningún test presenta las respuestas como válidas; cambio nullable pendiente de un PR separado del contrato.
 
-- [ ] 5.1 Probar consulta directa a `/rest/v1/reports?select=user_id` con clave publicable y sin sesión; confirmar rechazo o lista vacía.
-- [ ] 5.2 Con dos usuarios autenticados, comprobar que cada persona solo lee sus propias confirmaciones.
-- [ ] 5.3 Probar `INSERT` directo de cliente en `reports` y `report_confirmations`; confirmar rechazo.
-- [ ] 5.4 Enviar dos confirmaciones concurrentes de la misma cuenta/reporte; comprobar una fila única y respuestas válidas.
-- [ ] 5.5 Enviar confirmaciones concurrentes de tres cuentas distintas a un reporte pendiente; comprobar tres filas y una sola transición a `citizen-verification`.
-- [ ] 5.6 Invocar `confirm_report` sin sesión; comprobar el error de autenticación.
-- [ ] 5.7 Reclamar concurrentemente la misma clave; comprobar un procesamiento y un `409 PUBLICATION_IN_PROGRESS` con `Retry-After`.
-- [ ] 5.8 Probar inserción directa en `reports` rechazada y `publish_report` con sesión y sin sesión; conservar los resultados reproducibles.
-- [ ] 5.9 Simular timeout tras el envío de `publish_report` y reintentar la misma clave; comprobar que se recupera el mismo reporte sin borrar fotos.
-- [ ] 5.10 Comprobar acceso anónimo a la copia pública y rechazo de acceso anónimo a la original privada.
-- [ ] 5.11 Hacer que el script acepte solo el ref de pruebas `rsvtchefnydihokivaqg`, exija `TEST_PROJECT_CONFIRMED=true` y rechace claves `service_role`/`sb_secret`; probar la guardia sin ejecutar pruebas contra producción.
-- [ ] 5.12 Revisar Security Advisor en el panel del proyecto de pruebas y registrar hallazgos; no marcarlo completo sin evidencia del análisis.
+## 5. Integración en el proyecto de pruebas en la nube — pendiente de base real
 
-## Seguimiento de equipo
+- [ ] 5.0 Aplicar las cinco migraciones en orden con el checklist de `design.md`: `npx.cmd supabase init`, `login`, `link`, `migration list --linked`, `db push --dry-run --linked`, `db push --linked` y `migration list --linked`. Después de cada comando, verificar los resultados indicados allí; detenerse ante ref o historial inesperado. No ejecutar `db reset --linked`.
+- [ ] 5.1 Verificar que la clave publicable no puede leer directamente `reports` ni `user_id`; consultar únicamente la vista pública.
+- [ ] 5.2 Con dos cuentas, verificar que RLS de confirmaciones oculta las filas de la otra persona.
+- [ ] 5.3 Verificar rechazo de `INSERT` directo en `reports` y `report_confirmations`; probar `publish_report` con sesión y rechazo sin sesión.
+- [ ] 5.4 Enviar confirmaciones concurrentes de la misma cuenta y reporte; verificar una sola fila y resultados válidos.
+- [ ] 5.5 Con una autora y tres confirmadoras distintas, confirmar concurrentemente un reporte y verificar tres filas y una sola transición a `citizen-verification`.
+- [ ] 5.6 Invocar `confirm_report` sin sesión y verificar el rechazo de autenticación.
+- [ ] 5.7 Verificar claim concurrente (un resultado `CLAIMED` y otro `IN_PROGRESS` con el mismo `report_id`), replay tras perder la respuesta del commit, copia pública accesible sin sesión e inaccesibilidad de la original privada. El `409`/`Retry-After` de la ruta se cubre solo con pruebas unitarias simuladas.
+- [ ] 5.8 Ejecutar Security Advisor en el proyecto de pruebas y registrar objeto, severidad y resolución de cada hallazgo, siguiendo el checklist de `design.md`.
+- [x] 5.9 Preparar `scripts/integration/check-reports-cloud.mjs` con guardias para URL de producción, confirmación explícita y claves secretas; requiere `.env.test.local` y cuatro cuentas creadas manualmente. La inspección estática no es evidencia de integración ejecutada.
+- [x] 5.10 Agregar pruebas estáticas para firmas RPC, seguridad de funciones, RLS declarativa, proyección pública, policies de Storage y orden de objetos entre migraciones. Evidencia: `tests/migrations-static.test.mjs`; no sustituye aplicar el SQL.
 
-- Revisar los DTO comunes y la integración de `Location.address` con Fran cuando se integre el PR #3.
-- Confirmar con Fran la presentación de copias públicas saneadas, los límites de carga, retención y estrategia futura de huérfanas.
-- Confirmar con Valen que la visión no requiere persistir fotos ni metadatos de análisis.
-- Revisar con Fran (también llamado Francisco) las decisiones de Storage y el orden de integración del PR #3.
-- Ejecutar verificaciones de seguridad solo en el proyecto de pruebas `rsvtchefnydihokivaqg`; nunca contra producción.
+## Revisión del equipo
 
-## Evidencia
+- [ ] Revisar con Agus y Valen la dirección, como pide `docs/contracts.md`. El snapshot de `.context/prs.json` no muestra reseñas para los PR #5 y #8.
+- [ ] Acordar con Fran (también llamado Francisco) bucket público, orientación EXIF, retención, limpieza de huérfanas, cuota por usuario, tamaño del multipart y versionado de `supabase/config.toml`.
+- [ ] Resolver `Photo.expiresAt` nullable en un PR separado desde `main`, con revisión de Agus, Valen y Fran.
+- [ ] Confirmar con Valen que el backend no debe persistir datos ni fotos de análisis Gemini.
 
-- **Unitaria con simulación:** `node scripts/check-reports.mjs` cubre servicios, rutas mapeadas, saneado y manejo de respuestas RPC simuladas. Esa suite no ejecuta SQL ni prueba RLS, permisos efectivos de Storage, atomicidad o concurrencia.
-- **Contra base real:** toda tarea cuyo criterio pide aplicar/verificar migraciones, permisos, Storage, Auth, transacciones o concurrencia en el proyecto de pruebas permanece sin marcar hasta registrar esa ejecución.
+## Evidencia disponible
+
+- **Unitaria con simulación:** `node scripts/check-reports.mjs` cubre contratos, rutas, servicios, RPC simuladas, saneamiento y fallas de Storage/publicación. No ejecuta SQL ni acredita permisos efectivos o concurrencia en PostgreSQL.
+- **Estática:** `tests/migrations-static.test.mjs` coteja llamadas RPC contra firmas SQL y revisa declaraciones de seguridad y dependencias. No comprueba que PostgreSQL acepte o ejecute las migraciones.
+- **Contra base real:** ninguna tarea de la sección 5 está completada. Las migraciones siguen sin aplicarse y el script cloud no se ejecutó.

@@ -16,6 +16,7 @@ try {
     join(root, "tests/service.test.ts"),
     join(root, "tests/list-query.test.ts"),
   ];
+  const staticTestFiles = [join(root, "tests/migrations-static.test.mjs")];
 
   const program = ts.createProgram(testFiles, {
     target: ts.ScriptTarget.ES2022,
@@ -47,7 +48,7 @@ try {
       const rel = file.slice(root.length + 1).replace(/\.ts$/, ".js");
       return join(output, rel);
     });
-    const result = spawnSync(process.execPath, ["--test", ...compiledTests], {
+    const result = spawnSync(process.execPath, ["--test", ...compiledTests, ...staticTestFiles], {
       stdio: "inherit",
       cwd: root,
     });

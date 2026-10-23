@@ -1,9 +1,44 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
-const TEST_PROJECT_REF = "rsvtchefnydihokivaqg";
-const TEST_PROJECT_URL = `https://${TEST_PROJECT_REF}.supabase.co`;
+const PRODUCTION_PROJECT_REF = "rsvtchefnydihokivaqg";
+const TEST_ENV_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../.env.test.local");
+
+function loadTestEnvironment() {
+  let source;
+  try {
+    source = readFileSync(TEST_ENV_PATH, "utf8");
+  } catch {
+    throw new Error("Falta .env.test.local con la URL y la clave publicable del proyecto de pruebas.");
+  }
+
+  const fileEnvironment = {};
+  for (const [index, sourceLine] of source.split(/\r?\n/).entries()) {
+    const line = sourceLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!match) throw new Error(`Línea ${index + 1} inválida en .env.test.local.`);
+
+    let value = match[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    fileEnvironment[match[1]] = value;
+  }
+
+  if (!fileEnvironment.SUPABASE_URL) {
+    throw new Error(".env.test.local debe definir SUPABASE_URL.");
+  }
+  if (!fileEnvironment.SUPABASE_PUBLISHABLE_KEY && !fileEnvironment.SUPABASE_ANON_KEY) {
+    throw new Error(".env.test.local debe definir SUPABASE_PUBLISHABLE_KEY o SUPABASE_ANON_KEY.");
+  }
+
+  return { ...process.env, ...fileEnvironment };
+}
 
 function jwtRole(value) {
   const parts = value.split(".");
@@ -17,13 +52,16 @@ function jwtRole(value) {
   }
 }
 
-function assertSafeEnvironment() {
-  if (process.env.TEST_PROJECT_CONFIRMED !== "true") {
+function assertSafeEnvironment(environment) {
+  if (environment.TEST_PROJECT_CONFIRMED !== "true") {
     throw new Error("Falta TEST_PROJECT_CONFIRMED=true; no se harán requests.");
   }
 
-  const configuredUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const configuredUrl = environment.SUPABASE_URL;
   if (!configuredUrl) throw new Error("Falta SUPABASE_URL.");
+  if (configuredUrl.toLowerCase().includes(PRODUCTION_PROJECT_REF)) {
+    throw new Error("La URL contiene el ref de producción; requests bloqueados.");
+  }
 
   let parsedUrl;
   try {
@@ -34,25 +72,18 @@ function assertSafeEnvironment() {
 
   if (
     parsedUrl.protocol !== "https:" ||
-    parsedUrl.hostname !== `${TEST_PROJECT_REF}.supabase.co` ||
+    !/^[a-z0-9-]+\.supabase\.co$/i.test(parsedUrl.hostname) ||
     parsedUrl.pathname !== "/" ||
     parsedUrl.search !== "" ||
     parsedUrl.hash !== ""
   ) {
-    throw new Error(`URL bloqueada: solo se permite el proyecto de pruebas ${TEST_PROJECT_REF}.`);
+    throw new Error("URL bloqueada: se requiere el origen HTTPS de un proyecto Supabase.");
   }
 
-  if (
-    process.env.SUPABASE_PRODUCTION_PROJECT_REF &&
-    process.env.SUPABASE_PRODUCTION_PROJECT_REF === TEST_PROJECT_REF
-  ) {
-    throw new Error("El ref de pruebas coincide con SUPABASE_PRODUCTION_PROJECT_REF; requests bloqueados.");
-  }
-
-  const environmentContainsServiceKey = Object.entries(process.env).some(([name, value]) => {
+  const environmentContainsServiceKey = Object.entries(environment).some(([name, value]) => {
     if (!value) return false;
     if (/(SERVICE[_-]?ROLE|SB_SECRET|SUPABASE_SECRET)/i.test(name)) return true;
-    if (/^sb_secret_/i.test(value)) return true;
+    if (/(SERVICE[_-]?ROLE|SB_SECRET)/i.test(value)) return true;
     return jwtRole(value) === "service_role";
   });
   if (environmentContainsServiceKey) {
@@ -60,9 +91,8 @@ function assertSafeEnvironment() {
   }
 
   const publishableKey =
-    process.env.SUPABASE_PUBLISHABLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-    process.env.SUPABASE_ANON_KEY;
+    environment.SUPABASE_PUBLISHABLE_KEY ??
+    environment.SUPABASE_ANON_KEY;
   if (!publishableKey) {
     throw new Error("Falta SUPABASE_PUBLISHABLE_KEY o SUPABASE_ANON_KEY.");
   }
@@ -74,26 +104,8 @@ function assertSafeEnvironment() {
     throw new Error("La clave debe ser publishable o anon; no se aceptan claves secretas.");
   }
 
-  return { url: TEST_PROJECT_URL, publishableKey };
+  return { url: parsedUrl.origin, publishableKey };
 }
-
-const { url, publishableKey } = assertSafeEnvironment();
-const anonymousClient = createClient(url, publishableKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
-
-const TEST_USERS = [1, 2, 3, 4].map((index) => {
-  const email = process.env[`REPORTS_TEST_USER_${index}_EMAIL`];
-  const password = process.env[`REPORTS_TEST_USER_${index}_PASSWORD`];
-  if (!email || !password) {
-    throw new Error(`Faltan credenciales sintéticas REPORTS_TEST_USER_${index}_EMAIL/PASSWORD.`);
-  }
-
-  const client = createClient(url, publishableKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  return { email, password, client, id: null };
-});
 
 const jpegOriginal = Buffer.from([
   0xff, 0xd8,
@@ -115,7 +127,7 @@ function requireNoError(error, operation) {
   if (error) throw new Error(`${operation}: ${error.message}`);
 }
 
-async function signInTestUsers() {
+async function signInTestUsers(TEST_USERS) {
   for (const user of TEST_USERS) {
     const { data, error } = await user.client.auth.signInWithPassword({
       email: user.email,
@@ -139,8 +151,8 @@ function reportFields(label) {
     p_longitude: -60.6393,
     p_street: "Córdoba",
     p_street_number: 1200,
-    p_mime_type: "image/jpeg",
-    p_byte_size: jpegOriginal.length,
+    p_photo_public_mime_type: "image/jpeg",
+    p_photo_public_byte_size: jpegPublic.length,
   };
 }
 
@@ -180,8 +192,6 @@ async function publishClaimedReport(user, key, payloadHash, reportId, label) {
     p_key: key,
     p_payload_hash: payloadHash,
     ...reportFields(label),
-    p_street: "Córdoba",
-    p_street_number: 1200,
     p_storage_path: paths.originalPath,
     p_photo_public_path: paths.publicPath,
   });
@@ -216,8 +226,9 @@ async function confirm(user, reportId) {
   return data;
 }
 
-async function runIntegrationChecks() {
-  await signInTestUsers();
+async function runIntegrationChecks({ anonymousClient, TEST_USERS }) {
+  await signInTestUsers(TEST_USERS);
+  assert.equal(new Set(TEST_USERS.map((user) => user.id)).size, 4, "se requieren cuatro cuentas distintas");
 
   await check("lectura directa de reports denegada a anon", async () => {
     const { data, error } = await anonymousClient.from("reports").select("user_id").limit(1);
@@ -231,8 +242,6 @@ async function runIntegrationChecks() {
       p_key: randomUUID(),
       p_payload_hash: hashFor(randomUUID()),
       ...reportFields("RPC sin sesión"),
-      p_street: "Córdoba",
-      p_street_number: 1200,
       p_storage_path: "ruta-no-utilizada/original.jpg",
       p_photo_public_path: `${randomUUID()}.jpg`,
     };
@@ -256,8 +265,8 @@ async function runIntegrationChecks() {
       street_number: 1200,
       storage_path: "directo/original.jpg",
       photo_public_path: `${randomUUID()}.jpg`,
-      mime_type: "image/jpeg",
-      byte_size: jpegOriginal.length,
+      photo_public_mime_type: "image/jpeg",
+      photo_public_byte_size: jpegPublic.length,
     });
     assert.ok(reportInsert.error, "se permitió INSERT directo en reports");
 
@@ -372,4 +381,29 @@ async function runIntegrationChecks() {
   });
 }
 
-await runIntegrationChecks();
+async function main() {
+  const environment = loadTestEnvironment();
+  const { url, publishableKey } = assertSafeEnvironment(environment);
+  const anonymousClient = createClient(url, publishableKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const TEST_USERS = [1, 2, 3, 4].map((index) => {
+    const email = environment[`REPORTS_TEST_USER_${index}_EMAIL`];
+    const password = environment[`REPORTS_TEST_USER_${index}_PASSWORD`];
+    if (!email || !password) {
+      throw new Error(`Faltan credenciales sintéticas REPORTS_TEST_USER_${index}_EMAIL/PASSWORD.`);
+    }
+
+    const client = createClient(url, publishableKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    return { email, password, client, id: null };
+  });
+
+  await runIntegrationChecks({ anonymousClient, TEST_USERS });
+}
+
+const isDirectExecution = process.argv[1] &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+if (isDirectExecution) await main();

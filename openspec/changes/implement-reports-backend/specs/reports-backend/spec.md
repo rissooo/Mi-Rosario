@@ -7,7 +7,7 @@ Permite publicar y consultar reportes ciudadanos con persistencia segura, fotos 
 ## ADDED Requirements
 
 ### Requirement: Publicación autenticada con foto segura y dirección
-El backend SHALL aceptar publicaciones multipart autenticadas con los campos revisados, una foto original válida y una clave de idempotencia. SHALL mantener la original privada y exponer únicamente una copia pública sin metadatos; la dirección SHALL incluir calle y número opcional.
+El backend SHALL aceptar publicaciones multipart autenticadas con los campos revisados, una foto original válida y una clave de idempotencia. SHALL mantener la original privada y exponer únicamente una copia pública sin metadatos; la dirección SHALL incluir calle y número opcional. La compatibilidad completa del DTO queda pendiente mientras `Photo.expiresAt` sea obligatorio en el contrato compartido.
 
 #### Scenario: Publicación exitosa
 - **WHEN** una persona autenticada publica un reporte válido con una clave UUID nueva y una foto admitida
@@ -57,13 +57,14 @@ El backend SHALL delimitar la idempotencia por usuario y clave, reservar un `rep
 - **THEN** el sistema responde HTTP 409 con `IDEMPOTENCY_CONFLICT`
 
 ### Requirement: Catálogo público de reportes MVP
-El catálogo público SHALL consultar una proyección que omita identidad del autor y rutas privadas, y solo SHALL incluir los estados MVP `pending` y `citizen-verification`.
+El catálogo público SHALL consultar una proyección que omita identidad del autor y rutas privadas, y solo SHALL incluir los estados MVP `pending` y `citizen-verification`. Los campos `photo_public_mime_type` y `photo_public_byte_size` describen la copia saneada y son públicos.
 
 #### Scenario: Consulta pública de reportes
 - **WHEN** una persona anónima lista reportes con filtros geográficos, de categoría o estado
 - **THEN** recibe páginas estables con cursor y DTOs que incluyen coordenadas, `address`, estado y datos efectivos de confirmación
 - **THEN** cada foto usa la URL pública de la copia saneada, accesible sin sesión
-- **THEN** la proyección no expone `user_id`, ruta original, MIME ni tamaño de archivo
+- **THEN** la proyección no expone `user_id`, `storage_path` ni campos de una foto original
+- **THEN** expone `photo_public_path`, `photo_public_mime_type` y `photo_public_byte_size` de la copia saneada
 
 #### Scenario: Exclusión de etapas fuera del MVP
 - **WHEN** una persona consulta el catálogo público
@@ -93,6 +94,14 @@ El backend SHALL aceptar confirmaciones autenticadas de personas distintas del a
 #### Scenario: Confirmaciones concurrentes alcanzan el umbral
 - **WHEN** tres cuentas válidas confirman concurrentemente un reporte con umbral efectivo 3
 - **THEN** la base serializa el conteo, registra una fila por cuenta y transiciona el reporte una sola vez
+
+### Requirement: Desviación conocida de `Photo.expiresAt`
+El cambio SHALL documentar que el contrato compartido exige `Photo.expiresAt`, aunque las URLs de `getPublicUrl` no vencen. El backend SHALL NOT inventar una fecha ni afirmar que lista y detalle validan el contrato completo mientras no se apruebe un PR separado del contrato.
+
+#### Scenario: Respuesta con URL pública sin vencimiento
+- **WHEN** lista o detalle construye una foto desde `photo_public_path`
+- **THEN** el DTO omite `expiresAt` y la prueba de contrato conserva el error de validación de ese campo
+- **THEN** la compatibilidad completa queda pendiente de un PR separado desde `main`, revisado por Agus, Valen y Fran
 
 ### Requirement: Límites de seguridad de base y almacenamiento
 La base SHALL aplicar permisos y RLS; las mutaciones de reportes e idempotencia SHALL realizarse solo mediante RPC autenticadas, y los objetos originales SHALL permanecer privados.

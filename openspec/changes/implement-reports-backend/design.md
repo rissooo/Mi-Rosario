@@ -2,13 +2,13 @@
 
 ## Contexto
 
-Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el comportamiento exigido. La rama contiene handlers, servicios y cinco migraciones aún no aplicadas en ningún entorno, según confirmó Agus. No hay Supabase local configurado. `Location.address` ya forma parte del contrato que llegó a `main` con el PR #3.
+Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el comportamiento exigido. La rama contiene handlers, servicios y cinco migraciones que Agus confirmó que no se aplicaron en ningún entorno. La verificación SQL requiere un proyecto de pruebas en la nube separado de producción. `Location.address` forma parte del contrato que llegó a `main` con el PR #3.
 
 ## Objetivos / Fuera de alcance
 
-**Objetivos:** publicación recuperable y transaccional; separación entre original privada y copia pública saneada; exposición pública mínima; confirmación atómica bajo el umbral efectivo del reporte; verificación reproducible en el proyecto Supabase de pruebas `rsvtchefnydihokivaqg`, nunca en producción.
+**Objetivos:** publicación recuperable y transaccional; separación entre original privada y copia pública saneada; exposición pública mínima; confirmación atómica bajo el umbral efectivo del reporte; verificación reproducible en un proyecto de pruebas en la nube cuyo ref sea distinto de producción.
 
-**Fuera de alcance:** operaciones institucionales, moderación municipal, IA/visión, cambios a contratos compartidos, cambios al cliente Supabase compartido, limpieza automática de huérfanas y cualquier operación contra una base remota.
+**Fuera de alcance:** operaciones institucionales, moderación municipal, IA/visión, cambios a contratos compartidos, cambios al cliente Supabase compartido y limpieza automática de huérfanas. La verificación remota se limita al proyecto de pruebas en la nube; producción está bloqueada.
 
 ## Decisiones
 
@@ -52,29 +52,29 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 ### 5. API, dirección y cursor
 
 - Los servicios publican solo mediante `publish_report`; el `INSERT` directo de la clave publicable queda prohibido. Para listas y detalle, se mapea `photo.url` desde la URL pública de `photo_public_path`.
-- La rama recibe la dirección mediante un adaptador pequeño local en `lib/reports/`, con tipo local `{ street, number }`; no se modifica `lib/contracts/`. Lista y detalle siempre devuelven `location.address`, sin cast ni calle vacía de fallback. Al integrarse el PR #3, el único archivo que debe reemplazarse para ese límite es el adaptador.
+- Lista y detalle usan `Location.address` del contrato compartido y siempre devuelven `location.address`, sin cast ni calle vacía de fallback. El PR #3 ya está integrado en `main`; no queda un adaptador propio por reemplazar.
 - Se conserva la forma de cursor `{ version, createdAt, id, filters }`, el orden estable y los filtros existentes. `resolvedAt` del DTO se resuelve como `null` en el MVP; no se lee ni publica `resolved_at`.
 
 ### 6. Migraciones y proyecto de pruebas en la nube
 
-- Las migraciones `20261023000001` a `20261023000005` están en orden cronológico y preparadas para aplicarse a un proyecto Supabase vacío. No se han aplicado en ningún entorno.
-- El proyecto de prueba acordado es `rsvtchefnydihokivaqg`. No usar producción ni información real. Agus correrá los comandos; este trabajo no ejecuta login, link, push ni ninguna operación remota.
-- `supabase/config.toml` todavía no existe. `npx supabase init` lo genera y es requisito para el flujo de `db push`. Queda pendiente decidir con Fran si se versiona; hasta acordarlo, revisar el `git status` después de `init` y no incluir el archivo en un commit.
-- Los scripts de integración solo aceptan la URL exacta `https://rsvtchefnydihokivaqg.supabase.co`, requieren `TEST_PROJECT_CONFIRMED=true`, rechazan claves `service_role`/`sb_secret` y no cargan archivos `.env` automáticamente.
-- Las tareas que necesitan Postgres, Auth, Storage o Security Advisor reales siguen sin marcar hasta que se ejecuten allí y se guarde evidencia. No se ejecuta `reset --linked` ni se envían datos de producción.
+- Las cinco migraciones están ordenadas para un proyecto Supabase vacío y no se han aplicado en ningún entorno. La revisión actual es estática; solo la aplicación en el proyecto de pruebas en la nube aportará evidencia de ejecución.
+- El ref de producción `rsvtchefnydihokivaqg` está bloqueado por el script. El proyecto de pruebas debe ser otro proyecto y Agus debe confirmar visualmente su ref antes de ejecutar comandos o pruebas.
+- `supabase/config.toml` todavía no existe. Agus ejecutará `npx.cmd supabase init` cuando el proyecto de pruebas esté acordado. Sigue abierta con Fran la decisión de versionar ese archivo; revisar `git status` después de `init` y no incluirlo hasta acordarlo.
+- El script de integración lee `SUPABASE_URL` y la clave publicable desde `.env.test.local`, exige `TEST_PROJECT_CONFIRMED=true`, rechaza el ref de producción y claves `service_role`/`sb_secret`, no crea cuentas por API, no imprime claves y solo corre al ejecutarse directamente. El archivo está ignorado por Git y no contiene valores en este cambio.
+- Las pruebas unitarias y estáticas no acreditan RLS, permisos efectivos de Storage, atomicidad ni concurrencia. Esas tareas siguen sin marcar hasta ejecutarlas en el proyecto de pruebas en la nube. No usar `db reset --linked` ni datos de producción.
 
-## Checklist para aplicar y verificar en el proyecto de prueba
+## Checklist para aplicar y verificar en el proyecto de pruebas en la nube
 
-Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` es un proyecto separado de pruebas, está vacío y no contiene datos que deban conservarse. Si el ref o el estado no coinciden, detenerse.
+Antes de iniciar, confirmar en el panel que el proyecto elegido es un proyecto separado de pruebas, está vacío y su ref no contiene `rsvtchefnydihokivaqg`. Si el ref o el estado no coinciden, detenerse.
 
-1. Desde la raíz del repo, Agus ejecuta `npx supabase init`. Verificar que aparece `supabase/config.toml`, que no cambió ningún archivo de migración y que el archivo no contiene secretos. Acordar con Fran si se commitea; no asumirlo.
-2. Ejecutar `npx supabase login`. Verificar que la CLI confirma la sesión de Agus. No copiar el token a archivos, logs compartidos ni commits.
-3. Ejecutar `npx supabase link --project-ref rsvtchefnydihokivaqg`. Verificar que el ref enlazado coincide exactamente con el proyecto de pruebas y no con producción.
-4. Ejecutar `npx supabase migration list --linked`. Verificar que el remoto no registra ninguna de estas cinco migraciones y que las locales aparecen en orden `20261023000001` a `20261023000005`. Si el remoto tiene una migración o historial inesperado, detenerse antes de aplicar.
-5. Ejecutar `npx supabase db push --dry-run --linked`. Verificar que el plan contiene únicamente esas cinco migraciones, en orden, sin seed ni cambios de otros módulos. Si muestra cualquier otro cambio, detenerse.
-6. Solo tras confirmar que el proyecto está vacío y el dry run coincide, ejecutar `npx supabase db push --linked`. Verificar el resultado exitoso y que la CLI informa aplicar las cinco migraciones. No agregar `--include-seed`.
-7. Ejecutar otra vez `npx supabase migration list --linked`. Verificar que las cinco versiones aparecen aplicadas tanto local como remotamente y no hay diferencias.
-8. En SQL Editor del proyecto de prueba, verificar estructura y permisos:
+1. Desde la raíz del repositorio, ejecutar `npx.cmd supabase init`. Verificar que aparece `supabase/config.toml`, que no cambió ninguna migración y que no contiene secretos. Acordar con Fran si se versiona; no incluirlo en un commit antes de resolverlo.
+2. Ejecutar `npx.cmd supabase login`. Verificar que la CLI confirma la sesión de Agus. No copiar el token a archivos, logs compartidos ni commits.
+3. Ejecutar `npx.cmd supabase link --project-ref REF_DEL_PROYECTO_DE_PRUEBAS`. Verificar que el ref coincide con el proyecto de pruebas abierto en el panel y es distinto de `rsvtchefnydihokivaqg`.
+4. Ejecutar `npx.cmd supabase migration list --linked`. Verificar que el proyecto no registra estas migraciones y que las locales aparecen en orden `20261023000001` a `20261023000005`. Si el remoto tiene un historial inesperado, detenerse.
+5. Ejecutar `npx.cmd supabase db push --dry-run --linked`. Verificar que el plan contiene únicamente esas cinco migraciones, en orden, sin seed ni cambios de otros módulos. Si aparece otro cambio, detenerse.
+6. Tras confirmar que el proyecto está vacío y el dry run coincide, ejecutar `npx.cmd supabase db push --linked`. Verificar que la CLI aplica las cinco migraciones sin error. No agregar `--include-seed`.
+7. Ejecutar otra vez `npx.cmd supabase migration list --linked`. Verificar que las cinco versiones aparecen aplicadas y que no hay diferencias pendientes.
+8. En SQL Editor del proyecto de pruebas, verificar estructura y permisos:
    ```sql
    SELECT version
    FROM supabase_migrations.schema_migrations
@@ -92,11 +92,12 @@ Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` e
    WHERE table_schema = 'public' AND table_name = 'public_reports'
    ORDER BY ordinal_position;
    ```
-   Esperar cinco versiones, RLS activa en las tres tablas y una vista con `photo_public_path`, `confirmation_count`, `confirmation_threshold`, `street` y `street_number`; no deben aparecer `user_id`, `storage_path`, `mime_type`, `byte_size` ni `resolved_at` en la vista. Revisar también en Table Editor que `reports-originals` sea privado y `reports-public` público.
-9. Crear cuatro cuentas sintéticas de prueba en Auth y configurar en el entorno de la terminal `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY`) y `REPORTS_TEST_USER_1_EMAIL/PASSWORD` hasta `REPORTS_TEST_USER_4_EMAIL/PASSWORD`. El script no carga `.env`. Solo después de revisar el ref, Agus establece `$env:TEST_PROJECT_CONFIRMED = 'true'` y ejecuta `node scripts/integration/check-reports-cloud.mjs`. Verificar los resultados individuales de RLS, RPC, concurrencia y visibilidad de fotos; si una prueba falla, guardar el error sin incluir tokens.
-10. En el panel del proyecto de prueba, abrir Security Advisor y revisar hallazgos para tablas, vistas, funciones y Storage. Registrar cada advertencia con su objeto; no marcar 5.12 como completa solo porque no haya errores en tests.
+   Esperar cinco versiones y RLS activa en `reports`, `idempotency_keys` y `report_confirmations`. La vista debe incluir `photo_public_path`, metadatos de la copia, `confirmation_count`, `confirmation_threshold`, `street` y `street_number`; no debe incluir `user_id`, `storage_path`, `resolved` ni `resolved_at`. Revisar que `reports-originals` sea privado y `reports-public` público.
+9. En Supabase Studio, abrir **Authentication → Users** y crear cuatro cuentas sintéticas con email confirmado y contraseñas de prueba independientes. No usar cuentas personales ni datos reales. Copiar sus emails y contraseñas únicamente a `.env.test.local`, que Git ignora. Completar allí `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY`) y `REPORTS_TEST_USER_1_EMAIL/PASSWORD` hasta `REPORTS_TEST_USER_4_EMAIL/PASSWORD` con valores del proyecto elegido.
+10. Después de volver a verificar el ref del panel y el URL en `.env.test.local`, abrir PowerShell y ejecutar `$env:TEST_PROJECT_CONFIRMED = 'true'` y luego `node scripts/integration/check-reports-cloud.mjs`. Verificar los resultados individuales; guardar errores sin incluir claves ni contraseñas. El script usa cuatro cuentas porque el umbral de 3 necesita autor y tres confirmadores distintos.
+11. Para el chequeo manual 5.8, abrir **Security Advisor** en el panel del proyecto de pruebas, ejecutar el análisis y registrar cada hallazgo con objeto y severidad. Revisar RLS desactivada en tablas expuestas, funciones `SECURITY DEFINER` sin `search_path` seguro o con grants amplios, políticas de Storage que permitan acceso a originales y el bucket público esperado `reports-public`. Confirmar que las advertencias esperadas por la copia pública se distinguen de fallas y que no hay exposición del bucket `reports-originals`.
 
-`npx supabase db push`, el SQL Editor y el script de integración apuntan únicamente al proyecto de prueba; no ejecutar `npx supabase db reset --linked`.
+`npx.cmd supabase db push`, el SQL Editor y el script de integración apuntan únicamente al proyecto de pruebas en la nube; no ejecutar `npx.cmd supabase db reset --linked`.
 
 ## Riesgos y compensaciones
 
@@ -109,20 +110,19 @@ Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` e
 
 1. Revisar los cuatro artefactos y el estado real del código; mantener las cinco migraciones editables en su lugar mientras no haya evidencia de aplicación.
 2. Implementar y probar los bloques de esquema/RPC, servicios/fotos y rutas; ejecutar la integración contra el proyecto de pruebas únicamente después del checklist anterior.
-3. Integrar primero PR #3 (`add-report-address`) a `main`; después actualizar únicamente `lib/reports/address.ts` para importar el contrato compartido y correr las verificaciones de integración.
-4. Integrar el PR de `feature/reports-backend` después del PR #3 y sus revisiones. No hacer push ni merge desde este trabajo.
+3. PR #3 (`add-report-address`) ya está integrado a `main`; esta rama usa directamente `Location.address` del contrato compartido.
+4. Integrar el PR de `feature/reports-backend` después de las revisiones de sus responsables. No hacer push ni merge desde este trabajo.
 
 ## Decisiones abiertas
 
 ### Fran (también llamado Francisco) — interfaz y mapas
 
 - Confirmar que `reports-public` con copias saneadas y URL pública satisface el consumo de lista/detalle y el tratamiento de caché.
-- Resolver si se acepta `Photo.expiresAt: null` para URLs públicas sin vencimiento mediante un PR separado desde `main`; revisión requerida de Agus, Valen y Fran. Hasta que se mergee, lista y detalle siguen incumpliendo el contrato y no se marcan como terminados.
+- Proponer `Photo.expiresAt` nullable mediante un PR separado desde `main`, con revisión de Agus, Valen y Fran. Las respuestas actuales de lista y detalle omiten el campo y los tests demuestran que el validador del contrato las rechaza; ninguna prueba las presenta como válidas.
 - Resolver el tratamiento de orientación con Fran: el saneador elimina EXIF sin rotar los píxeles; si el navegador no recomprime ni orienta la imagen antes de enviarla, puede mostrarse girada.
 - Definir un límite de reportes o claims por usuario. Hoy una cuenta autenticada puede crear muchos claims y subir hasta 4 MiB por objeto en cada uno; no hay cuota ni rate limit por usuario.
-- Aprobar un PR de contrato separado, abierto desde `main`, para proponer `Photo.expiresAt` nullable; requiere revisión de Agus, Valen y Fran. Hasta entonces lista y detalle siguen incumpliendo el contrato y ningún test debe ocultarlo.
 - Confirmar el límite de tamaño del multipart desde cliente considerando el límite del hosting, y si el cliente comprimirá antes de enviar.
-- Revisar e integrar PR #3 antes que el backend; luego cambiar solamente el adaptador de dirección.
+- Confirmar que la dirección integrada por PR #3 se usa sin un adaptador adicional.
 - Definir con qué mecanismo autorizado se limpiarán huérfanas mediante Storage API; no se implementa en SQL.
 - Confirmar la política provisoria de retención de originales y copias.
 - Definir la acción de moderación para copias públicas de reportes ocultos o rechazados; la URL sigue accesible mientras el objeto exista.
@@ -131,9 +131,13 @@ Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` e
 
 - Confirmar que análisis de visión permanece en memoria y que el flujo de reportes no necesita persistir resultados ni metadatos de análisis. El backend no recibe ni almacena datos de visión en este cambio.
 
+### Revisión compartida de dirección
+
+- `docs/contracts.md` todavía pide revisión de Agus y Valen para la dirección. `Location.address` ya llegó a `main` con el PR #3 y este cambio lo consume sin modificar el contrato. El snapshot disponible de `.context/prs.json` para los PR #5 y #8 no incluye reseñas; no se toma como evidencia de esas revisiones.
+
 ## Pedidos a otros módulos
 
-- **Fran / PR #3 (`add-report-address`):** integrar primero el contrato `Location.address` compartido. No editar `lib/contracts/**`, `docs/contracts.md` ni `package.json` desde este cambio. Hasta el merge, el backend mantiene su adaptador local.
+- **Fran / PR #3 (`add-report-address`):** PR #3 ya está integrado a `main`; revisar el consumo de `Location.address` en el backend. No editar `lib/contracts/**`, `docs/contracts.md` ni `package.json` desde este cambio.
 - **Fran / Storage:** revisar la decisión provisoria de lectura pública de copias saneadas y acordar consumo/cache, tamaño de request y limpieza por Storage API.
 - **Fran / configuración Supabase:** decidir si `supabase/config.toml`, generado por `npx supabase init`, se commitea en esta rama o se mantiene local. `db push` requiere que exista, pero no presupone que se versiona.
 - **Valen / visión:** confirmar el límite de datos en memoria, sin pedir cambios en `lib/vision/**` dentro de este cambio.

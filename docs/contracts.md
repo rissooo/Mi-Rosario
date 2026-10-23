@@ -57,7 +57,9 @@ La gravedad sugerida por la IA puede ser nula; el vecino la corrige o la elige a
 
 ## Contratos de entrada y salida
 
-`ReportFields` exige título, descripción, categoryId, gravedad, ubicación `{ latitude, longitude }` y `reviewed: true`. `PublishReportRequest` agrega un `File` original: los campos del reporte se serializan en el campo JSON `report` del multipart, el archivo va en `image` y hace falta el header `Idempotency-Key` con un UUID. En el futuro backend, la clave tiene alcance por cuenta y operación.
+`ReportFields` exige título, descripción, categoryId, gravedad, ubicación `{ latitude, longitude, address }` y `reviewed: true`. `PublishReportRequest` agrega un `File` original: los campos del reporte se serializan en el campo JSON `report` del multipart, el archivo va en `image` y hace falta el header `Idempotency-Key` con un UUID. En el futuro backend, la clave tiene alcance por cuenta y operación.
+
+**Dirección (change `add-report-address`, pendiente de revisión de Agus y Valen).** `address` es `{ street, number }`. `street` es la calle: se le quitan los espacios sobrantes y debe tener de 2 a 80 caracteres. `number` es la altura: un entero de 1 a 99999, o `null` cuando el lugar no tiene altura (un parque o una plaza). Las coordenadas ubican el marcador en el mapa; la dirección es lo que leen los vecinos. El contrato no verifica que las dos describan el mismo lugar. `Report` devuelve la ubicación con la misma forma.
 
 `Report` agrega el ID asignado por el servidor, el estado, la foto, las fechas UTC de creación y actualización, los datos de verificación ciudadana, la disponibilidad y la evidencia institucional y la fecha de resolución, que puede ser nula. No incluye email, identidad privada del autor, ruta del objeto original ni datos internos de la publicación. `Photo` contiene el ID, la URL HTTPS autorizada para ver la foto, el vencimiento de esa URL, el MIME y el tamaño en bytes. La URL apunta a una versión segura para ver; el original sin cambios sigue siendo privado. Las URLs sintéticas usan `example.invalid` y, a propósito, no apuntan a fotos reales.
 
@@ -92,6 +94,7 @@ Un JSON mal formado sigue siendo 400 INVALID_JSON. `validatePublishReportRequest
 
 - Formas estrictas de objetos, campos obligatorios y rechazo de campos desconocidos anidados; texto recortado y medido en code points Unicode. Título provisorio de 5 a 120, descripción de 10 a 1000.
 - Categorías activas, tres gravedades, tipo de cuatro etapas, rangos finitos de coordenadas (no el polígono del municipio de Rosario), UUID y fechas UTC de calendario válidas.
+- Dirección obligatoria en la ubicación: calle de 2 a 80 caracteres sin espacios sobrantes, altura entera de 1 a 99999 o `null`, sin campos adicionales.
 - `File` original obligatorio, MIME permitido y metadatos de 1 byte a 4 MiB. **Estas verificaciones no decodifican la imagen ni verifican su firma.** Los límites reales del contenido y de la imagen decodificada y el tamaño total del multipart quedan para el futuro transporte. Las constantes documentan los límites de 4 MiB + 64 KiB para el multipart total y de 16 KiB para el JSON.
 - Campos de IA que pueden ser nulos, hasta cinco aclaraciones de 1 a 200 code points, y sugerencias sin campos de ubicación, estado ni identidad. Los validadores revisan la estructura, no la veracidad del texto, la confianza, el idioma ni la evidencia visual.
 - Formas de los DTO públicos, sintaxis de la URL HTTPS de la foto, coherencia entre umbral, cantidad y corroboración, y rechazo por defecto de datos institucionales en los ejemplos de reportes del MVP. Validar una URL nunca autoriza el acceso a ella.

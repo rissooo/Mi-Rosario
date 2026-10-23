@@ -2,7 +2,7 @@ import { INITIAL_CATEGORIES, isActiveCategory, type CategoryDefinition } from ".
 import { ERROR_STATUS, type ApiError, type ApiResult } from "./errors";
 import {
   DESCRIPTION_LIMITS, IMAGE_MIME_TYPES, MAX_IMAGE_BYTES, MAX_JSON_BYTES, FUTURE_INSTITUTIONAL_STAGES,
-  PROVISIONAL_TITLE_LIMITS, REPORT_STAGES, SEVERITIES,
+  PROVISIONAL_TITLE_LIMITS, REPORT_STAGES, SEVERITIES, STREET_LIMITS, STREET_NUMBER_LIMITS,
 } from "./reports";
 import type {
   CitizenVerification, ConfirmationResult, ConfirmReportRequest, MyConfirmation, Photo, PublishReportRequest,
@@ -69,10 +69,15 @@ class Check {
 function category(c: Check, value: unknown, path: string, options: ValidationOptions) {
   if (!isActiveCategory(value, options.catalog ?? INITIAL_CATEGORIES)) c.issue(path, "Seleccioná una categoría activa.");
 }
-function location(c: Check, value: unknown, path: string) {
-  const o = c.object(value, path, ["latitude", "longitude"]);
+function location(c: Check, value: unknown, path: string): Obj {
+  const o = c.object(value, path, ["latitude", "longitude", "address"]);
   c.number(o.latitude, pathOf(path, "latitude"), -90, 90);
   c.number(o.longitude, pathOf(path, "longitude"), -180, 180);
+  const addressPath = pathOf(path, "address");
+  const address = c.object(o.address, addressPath, ["street", "number"]);
+  const street = c.text(address.street, pathOf(addressPath, "street"), STREET_LIMITS.min, STREET_LIMITS.max);
+  if (address.number !== null) c.number(address.number, pathOf(addressPath, "number"), STREET_NUMBER_LIMITS.min, STREET_NUMBER_LIMITS.max, true);
+  return { ...o, address: { ...address, street } };
 }
 function reportFields(c: Check, value: unknown, path: string, options: ValidationOptions): Obj {
   const o = c.object(value, path, ["title", "description", "categoryId", "severity", "location", "reviewed"]);
@@ -80,9 +85,9 @@ function reportFields(c: Check, value: unknown, path: string, options: Validatio
   const description = c.text(o.description, pathOf(path, "description"), DESCRIPTION_LIMITS.min, DESCRIPTION_LIMITS.max);
   category(c, o.categoryId, pathOf(path, "categoryId"), options);
   c.enum(o.severity, pathOf(path, "severity"), SEVERITIES);
-  location(c, o.location, pathOf(path, "location"));
+  const normalizedLocation = location(c, o.location, pathOf(path, "location"));
   if (o.reviewed !== true) c.issue(pathOf(path, "reviewed"), "Revisá y confirmá los datos antes de publicar.");
-  return { ...o, title, description };
+  return { ...o, title, description, location: normalizedLocation };
 }
 function verification(c: Check, value: unknown, path: string): Obj {
   const o = c.object(value, path, ["confirmationCount", "threshold", "policyStatus", "corroborated"]);

@@ -3,7 +3,9 @@ import type { CategoryId } from "./categories";
 /** Estos alias describen valores que viajan por la red; los validadores en ejecución controlan su formato. */
 export type UUID = string;
 export type IsoDateTime = string;
-export type Location = { latitude: number; longitude: number };
+/** Dirección legible; number es null cuando el lugar no tiene altura. */
+export type Address = { street: string; number: number | null };
+export type Location = { latitude: number; longitude: number; address: Address };
 export type Severity = "low" | "medium" | "high";
 export const SEVERITIES = ["low", "medium", "high"] as const;
 export const SEVERITY_DETAILS: Readonly<Record<Severity, { label: string; description: string }>> = {
@@ -36,6 +38,8 @@ export const MAX_JSON_BYTES = 16 * 1024;
 /** Límites provisorios del título: para evaluar el contrato, no son una política de producción aprobada. */
 export const PROVISIONAL_TITLE_LIMITS = { min: 5, max: 120 } as const;
 export const DESCRIPTION_LIMITS = { min: 10, max: 1000 } as const;
+export const STREET_LIMITS = { min: 2, max: 80 } as const;
+export const STREET_NUMBER_LIMITS = { min: 1, max: 99999 } as const;
 
 export type ReportFields = {
   title: string;

@@ -2,7 +2,7 @@
 
 ## Context
 
-Ver proposal.md para la motivación. Se inspeccionaron AGENTS.md, openspec/config.yaml, docs/contracts.md, docs/development.md, lib/contracts/{vision,reports,errors,validation}.ts, lib/vision/README.md, el callback y los clientes SSR de Supabase, y las guías instaladas de Route Handlers de Next.js 16.4.2. Solo existe el README de visión; no hay endpoint ni SDK instalado. La rama es feature/gemini-vision y no se presupone ningún cambio del PR #3. La protección de archivos acordada en la conversación se respeta aunque esta rama todavía no contiene aquella sección de instrucciones.
+Ver proposal.md para la motivación. Se inspeccionaron reglas, contratos, clientes SSR y guías instaladas de Next.js 16.4.2. La Etapa 1 está implementada y guardada en 069f7e1; al comenzar la ampliación se verificó feature/gemini-vision con working tree limpio. Se conserva su seguridad y no se presupone ningún cambio del PR #3.
 
 ## Goals / Non-Goals
 
@@ -16,7 +16,7 @@ Ver proposal.md para la motivación. Se inspeccionaron AGENTS.md, openspec/confi
 
 1. Iniciar un presupuesto monotónico total de 20 segundos al entrar al handler Node.js y combinarlo con request.signal. El tiempo de red anterior al handler no está bajo control del servicio.
 2. Antes de consultar sesión, validar URL local, Origin cuando esté presente y Fetch Metadata. Rechazar cross-site u orígenes diferentes al configurado con 403 sin llamar a la autenticación del handler. No habilitar CORS abierto ni confiar en Host/X-Forwarded-Host como configuración del origen permitido.
-3. Resolver cookies mediante el cliente existente y verificar identidad con auth.getUser(), sin confiar en getSession() ni en cuentas del body. Sesión ausente, 401 o códigos conocidos de sesión inválida: 401. Respuestas 429/503, errores desconocidos y excepciones inesperadas: 503 ANALYSIS_UNAVAILABLE. Los errores temporales tienen precedencia sobre códigos contradictorios de sesión. No registrar ni devolver diagnósticos de Supabase; conservar el refresco existente.
+3. Resolver cookies mediante el cliente existente y verificar identidad con auth.getUser(), sin confiar en getSession() ni en cuentas del body. Sesión ausente, 401 o códigos conocidos de sesión inválida: 401. Respuestas 429/503, errores desconocidos y excepciones inesperadas: 503 ANALYSIS_UNAVAILABLE. Los errores temporales tienen precedencia sobre códigos contradictorios. No registrar ni devolver diagnósticos crudos de Supabase; el diagnóstico temporal local solo admite categorías controladas y estados numéricos. Conservar el refresco existente.
 4. Aplicar la admisión de capacidad por ID verificado antes de lectura/decodificación costosa, reservando y liberando cupos en finally. Identidad, origen y admisión tienen precedencia sobre errores del archivo.
 5. Verificar multipart/form-data y boundary. Reservar un único buffer de MAX_MULTIPART_BYTES (4 MiB + 64 KiB), ignorar vacíos y contar bytes antes de copiar cada fragmento, sin conservar un arreglo de fragmentos. Cada 256 lecturas ceder el event loop para atender abort/timeout incluso con vacíos. Content-Length solo permite rechazo temprano. Cancelar lectura al exceso/plazo y verificar abort antes/después de parsear con FormData nativo. El parser puede crear copias acotadas por bytes; no se promete un techo duro de toda la memoria del proceso. Content-Encoding no soportado: 415.
 6. Exigir una sola entrada image de tipo File, sin duplicados ni campos extra. No aceptar URLs, rutas, JSON/base64 del cliente, modelo ni prompt. Validar tamaño real del archivo; nombres/extensiones no determinan el formato. Multipart roto, vacío o campos inválidos: 422; request/formato incompatible: 415; exceso de bytes: 413.
@@ -38,7 +38,7 @@ Alternativa: decoder manual o solo firma. Se descarta porque no valida el conten
 
 Gemini 3.8 Flash es una decisión confirmada por el usuario, con pruebas anteriores en Google AI Studio. Su identificador queda configurable exclusivamente en servidor (GEMINI_MODEL), sin selección del cliente ni fallback silencioso. Las pruebas anteriores no validan este endpoint. En Etapa 1 se prepara el adaptador SDK y solo se ejecuta un proveedor simulado, sin consultar credenciales reales.
 
-Usar @google/genai, SDK oficial actual, detrás de un adaptador inyectable. Alternativa REST con fetch: menos dependencia, pero obliga a mantener errores y protocolo; se recomienda SDK por soporte de tipos, schema y AbortSignal. No usar el paquete legado @google/generative-ai. Fijar versiones compatibles y auditadas al momento de autorizar la instalación; no instalar en este change de planificación.
+Usar @google/genai detrás de un adaptador inyectable. Alternativa REST con fetch: menos dependencia, pero obliga a mantener errores y protocolo; se eligió SDK por tipos, schema y AbortSignal. No usar el paquete legado @google/generative-ai. La instalación autorizada de Etapa 1 fijó @google/genai 2.30.0, sharp 0.35.5 y server-only 0.0.1; Etapa 2 los reutiliza sin cambios en package.json o lockfile.
 
 Llamada generateContent no streaming: una representación inlineData base64, sin Files API, herramientas, grounding, búsqueda, ejecución, URL context ni cache explícita. Configurar responseMimeType application/json y responseJsonSchema con objeto cerrado y cinco campos obligatorios: title, description, categoryId, severity, warnings. Los primeros cuatro admiten null; categoryId se deriva del catálogo activo y severity de las constantes comunes. warnings tiene hasta cinco textos de 1 a 200 code points. Los límites de título (5 a 120) siguen provisorios; descripción 10 a 1000. No promoverlos a política de producto aprobada.
 
@@ -53,6 +53,10 @@ Incluir descripciones de las cuatro categorías y de low/medium/high según el c
 ### 5. Plazos, errores y cancelación
 
 El presupuesto total de 20 segundos es una restricción adicional conservadora al máximo de proveedor de ANALYSIS_DEADLINE_MS. La llamada recibe min(20 segundos, tiempo restante), AbortSignal y timeout HTTP. Desactivar reintentos SDK y continuaciones automáticas; probarlo con transporte simulado. Desconexión cancela el lector y propaga abort al pipeline/proveedor; ignorar resultados tardíos y limpiar recursos cuando terminen las operaciones pendientes. Cancelar la espera no interrumpe necesariamente código nativo ni el fetch interno de getUser. El event loop puede demorar el temporizador. No se garantiza detener procesamiento/facturación remotos.
+
+Corrección de auditoría: comprobar de nuevo el reloj después de validadores, eventos de validación y serialización JSON, antes de aceptar el 200. El evento final result ok se agenda como microtarea después de esa decisión; no ejecuta un destino síncrono entre comprobación y retorno y sus excepciones no alteran la respuesta. Su tiempo puede ser posterior a la aceptación. Las regresiones adelantan un reloj durante validación y serialización y esperan 504 sin result ok; antes reproducían HTTP 200.
+
+Conservar también readWork, la promesa completa de recepción y parseo, al coordinar liberación con Promise.allSettled. Un timeout devuelve 504 sin liberar cupo mientras continúen parseo, imagen o proveedor. Al resolver o rechazar todo el trabajo, liberar una sola vez. Esto no termina forzadamente el parser nativo: un trabajo que no finalice mantiene capacidad ocupada. Las regresiones controlan el parser pendiente y su resolución/rechazo; antes reproducían liberación prematura.
 
 El proxy global existente alcanza esta ruta y puede verificar o refrescar sesión antes del handler. Por eso su guardia 503 y su rechazo temprano de origen no garantizan ausencia de procesamiento previo de sesión. El presupuesto empieza dentro del handler y excluye proxy, cola de Next.js y transporte previo. Esta corrección no cambia proxy ni autenticación compartida.
 
@@ -80,7 +84,7 @@ Un contador en memoria no impone límites globales en Vercel: antes de exposici�
 
 ### 7. Privacidad y credenciales
 
-Todavía no se configuró API key de Gemini en Next.js, .env.local ni Vercel, según la aclaración del usuario. Etapa 1 no la crea, lee ni requiere: las pruebas anteriores fueron en Google AI Studio. Una eventual GEMINI_API_KEY será solo del servidor, nunca NEXT_PUBLIC_, repositorio, errores o logs. Usar barrera server-only; no enviar cookies, ID, email ni nombres de archivo. Etapa 2 debe revisar condiciones de tratamiento, región y cuenta antes de fotos reales: sin persistencia propia no implica retención cero del proveedor. No se habilitan logs con imágenes, secretos ni diagnósticos privados.
+En Etapa 1 no había clave configurada y las pruebas anteriores eran de Google AI Studio. Para Etapa 2 el usuario configuró privadamente GEMINI_API_KEY en el servidor local y confirmó una prueba manual autorizada exitosa. La clave continúa solo en servidor, nunca NEXT_PUBLIC_, repositorio, errores o logs. Usar barrera server-only; no enviar cookies, ID, email ni nombres de archivo. La revisión formal de tratamiento, región y cuenta sigue pendiente: sin persistencia propia no implica retención cero del proveedor. No habilitar logs con imágenes, secretos ni diagnósticos privados. Vercel y producción siguen bloqueados.
 
 ### 8. Archivos futuros y coordinación
 
@@ -121,9 +125,33 @@ La Etapa 1 fue autorizada, incluidas dependencias necesarias en package.json y l
 - Etapa 1 usa sharp con timeout nativo de 3 segundos y pipeline acotado. Se decodifica a píxeles completos antes de normalizar (JPEG calidad 80, PNG con transparencia), se destruye el pipeline al cancelar y se conserva el cupo hasta que termine la promesa. Una expiración devuelve 504; corrupción comprobada devuelve 422. No se promete aislamiento de memoria ni borrado físico inmediato. Medición/aislamiento de producción quedan en Etapa 2.
 - La admisión usa la configuración validada y los defaults descritos arriba; cuenta archivos inválidos tras admisión y no controla réplicas. La corrección autorizada agrega pruebas de configuración y fragmentación sin ampliar la Etapa 1.
 - La salida JSON se acota a 16 KiB antes de parsear, no antes de que el SDK reciba el transporte. Se prueba schema y configuración con transporte falso, no compatibilidad real con Google.
-- Etapa 2 conserva controles distribuidos, integración real, tratamiento de datos, presupuesto, producción y revisión conjunta pendientes. La autorización explícita permite actualizar este change y luego aplicar solo Etapa 1.
+- Al terminar Etapa 1 quedaban pendientes conexión real, controles distribuidos, tratamiento de datos, presupuesto, producción y revisión conjunta. La conexión local posterior está cumplida según la evidencia de abajo; integración con el equipo y habilitación pública siguen pendientes.
+
+## Etapa 2 local: conexión implementada y prueba manual exitosa
+
+Esta sección amplía los límites históricos de Etapa 1; no habilita Vercel ni producción. Hay evidencia de una prueba manual local exitosa comunicada por el usuario; la etapa pública sigue pendiente. No se solicita, crea ni escribe ninguna clave en esta preparación ni se ejecutan nuevas llamadas reales.
+
+- Un selector interno server-only devuelve modo deshabilitado si NODE_ENV no es development, existe VERCEL, faltan flags o ambos están en 1. VISION_LOCAL_SIMULATION=1 mantiene el simulador; VISION_LOCAL_GEMINI_REAL=1 habilita solo el adaptador existente. Ambos modos son mutuamente excluyentes, sin fallback.
+- Solo en modo real se lee GEMINI_API_KEY del entorno servidor; ausencia, vacío o espacios producen 503. GEMINI_MODEL conserva default gemini-3.8-flash y la allowlist exacta. Validar modelo antes de construir cliente; nombres/descripciones del request nunca eligen modelo ni endpoint.
+- El selector devuelve createGeminiProvider con su transporte inyectado. El transporte construye GoogleGenAI de manera diferida al invocarse analyze, después de controles/decodificación existentes. No se crea un proveedor paralelo. La instrumentación agrega eventos internos en service y el adaptador de autenticación de visión, sin modificar autenticación global, proxy, contratos ni políticas de imágenes. El selector y la fábrica SDK se prueban sin Next/Supabase reales.
+- Fijar Gemini Developer API (vertexai:false), base HTTPS de Google y API v1beta para evitar selección ambiental de otro backend. No habilitar interceptores/logs con secretos. No se usa la clave de asistentes ni se confía en GOOGLE_API_KEY como fallback. Reutilizar schema, validadores, attempts=1, señal y timeout del adaptador existente.
+- Tests con fábrica y fetch falsos comprueban bloqueo previo a llamadas/lectura de clave en entornos no autorizados, clave ausente, modelo rechazado, errores/salida inválida y éxito validado. La red permanece bloqueada y no se toman valores reales del entorno para esas pruebas.
+- La prueba real local se realizó con clave privada, solo el flag real, origen local y sesión Supabase. La evidencia está en tasks.md: HTTP 200, 10670 ms de navegador y 10176 ms de servidor. Esta preparación no autoriza repetirla. Fotos reales requieren revisar sus condiciones de uso y tratamiento; no se afirma retención cero de Google.
+- Conserva los límites de memoria/cancelación de Etapa 1: presupuesto dentro del handler, proxy previo fuera del plazo, código nativo y fetch SSR de mejor esfuerzo, y contador local sin coordinación entre instancias. Crear conexión local no resuelve admisión distribuida, presupuesto ni revisiones del equipo.
+
+## Diagnóstico temporal local y límites de interpretación
+
+VISION_LOCAL_DIAGNOSTICS=1 habilita registros solo en development sin VERCEL, desactivados por defecto. Un UUID aleatorio agrupa configuration, origin, authentication, admission, image, client, generate, validation y result. El logger admite únicamente categorías cerradas, tiempos aproximados y estados HTTP numéricos. No recibe contexto libre ni excepciones crudas; no registra secretos, identidad, cookies, headers sensibles, imágenes, prompts o respuestas. No entrega el UUID al navegador ni cambia contratos. Fallos del destino de logs no alteran la respuesta.
+
+generate ok significa devolución del SDK, no validación: requiere validation ok y result ok. network puede representar un TypeError local, no prueba una falla de red. generate failed sin generate started no demuestra llamada a Google; también puede surgir al construir el cliente. generate started no acredita recepción por Google. La admisión no identifica en logs cuál límite se alcanzó. Ausencia de eventos puede significar flag apagado, entorno bloqueado o salida en otra terminal. El proxy previo queda fuera de esta instrumentación. Eventos tardíos no cambian respuestas ya emitidas.
+
+La activación, desactivación y retirada están documentadas en lib/vision/README.md. Las pruebas usan canarios y SDK falso; no sustituyen evidencia manual. La prueba exitosa informada por el usuario verifica este recorrido local en una muestra, no precisión general, costos, memoria, cancelación real o producción. El primer 503 permanece sin causa confirmada y no se atribuye a Google o Supabase.
+
+El runner transmite al hijo solo una lista permitida de variables del sistema, NODE_ENV=test y rutas propias. No hereda claves, tokens, otros secretos, flags reales ni NODE_OPTIONS; no modifica el entorno de la terminal. La prueba de aislamiento comprueba ausencia de variables de credenciales sin imprimir nombres ni valores. No se agregan dependencias ni llamadas reales.
 
 ## Referencias verificadas el 22/10/2026
+
+Las referencias de esta sección corresponden a la investigación histórica; esta preparación no volvió a consultar servicios externos.
 
 - Modelo y capacidades: https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
 - SDK oficial: https://ai.google.dev/gemini-api/docs/libraries

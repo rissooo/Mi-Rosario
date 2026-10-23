@@ -2,6 +2,7 @@ import "server-only";
 import { ANALYSIS_DEADLINE_MS } from "../contracts/vision";
 import { validateAnalyzeImageResponse, validateImageSuggestion } from "../contracts/validation";
 import type { Admission } from "./admission";
+import type { VisionDiagnostic, DiagnosticStage } from "./diagnostics";
 import { Deadline } from "./deadline";
 import { errorResponse, VisionError } from "./errors";
 import { normalizeImage, type NormalizedImage } from "./image";
@@ -16,6 +17,7 @@ export type VisionDependencies = {
   provider: VisionProvider;
   normalize?: (file: File, signal: AbortSignal) => Promise<NormalizedImage>;
   budgetMs?: number;
+  diagnostic?: VisionDiagnostic;
 };
 
 export function localSimulationEnabled(env: Readonly<Record<string, string | undefined>> = process.env) {
@@ -32,33 +34,60 @@ export function createAnalyzeHandler(deps: VisionDependencies) {
     if (!deps.enabled()) return errorResponse(new VisionError("ANALYSIS_UNAVAILABLE"));
     const deadline = new Deadline(request.signal, deps.budgetMs ?? ANALYSIS_DEADLINE_MS);
     let release: (() => void) | undefined;
+    let readWork: Promise<File> | undefined;
     let imageWork: Promise<NormalizedImage> | undefined;
     let providerWork: Promise<unknown> | undefined;
+    let stage: DiagnosticStage = "origin";
     try {
+      deps.diagnostic?.event(stage, "started");
       deadline.remaining();
       const origin = request.headers.get("origin");
       if (!isLoopback(request.url) || new URL(request.url).origin !== deps.origin ||
         (origin !== null && origin !== deps.origin) || request.headers.get("sec-fetch-site") === "cross-site") throw new VisionError("FORBIDDEN");
+      deps.diagnostic?.event(stage, "ok");
+      stage = "authentication";
+      deps.diagnostic?.event(stage, "started");
       const userId = await deadline.wait(deps.authenticate());
       if (!userId) throw new VisionError("UNAUTHENTICATED");
+      deps.diagnostic?.event(stage, "ok");
+      stage = "admission";
+      deps.diagnostic?.event(stage, "started");
       release = deps.admission.acquire(userId);
-      const file = await deadline.wait(readImage(request, deadline.signal));
+      deps.diagnostic?.event(stage, "ok");
+      stage = "image";
+      deps.diagnostic?.event(stage, "started");
+      readWork = readImage(request, deadline.signal);
+      const file = await deadline.wait(readWork);
       imageWork = (deps.normalize ?? normalizeImage)(file, deadline.signal);
       const image = await deadline.wait(imageWork);
+      deps.diagnostic?.event(stage, "ok");
+      stage = "generate";
       providerWork = deps.provider.analyze(image, deadline.signal, deadline.remaining());
       const suggestion = await deadline.wait(providerWork);
       deadline.remaining();
+      stage = "validation";
+      deps.diagnostic?.event(stage, "started");
       const parsed = validateImageSuggestion(suggestion);
       if (!parsed.valid) throw new VisionError("ANALYSIS_FAILED");
       const result = validateAnalyzeImageResponse({ suggestion: parsed.value });
       if (!result.valid) throw new VisionError("ANALYSIS_FAILED");
-      return Response.json({ data: result.value }, { headers: { "Cache-Control": "no-store" } });
+      deps.diagnostic?.event(stage, "ok");
+      const response = Response.json({ data: result.value }, { headers: { "Cache-Control": "no-store" } });
+      deadline.remaining();
+      // El log final se ejecuta después de decidir el retorno, fuera del tramo crítico.
+      if (deps.diagnostic) queueMicrotask(() => {
+        try { deps.diagnostic?.event("result", "ok", 200); } catch {}
+      });
+      return response;
     } catch (error) {
-      return errorResponse(deadline.signal.aborted ? new VisionError("ANALYSIS_TIMEOUT") : error);
+      const response = errorResponse(deadline.signal.aborted ? new VisionError("ANALYSIS_TIMEOUT") : error);
+      deps.diagnostic?.event(stage, response.status === 504 ? "timeout" : "failed", response.status);
+      deps.diagnostic?.event("result", "failed", response.status);
+      return response;
     } finally {
       deadline.close();
-      // Un decoder nativo puede seguir terminando luego de cancelar la espera.
-      if (imageWork && release) { const done = release; void Promise.allSettled([imageWork, providerWork]).then(done); }
+      // Parseo y trabajo nativo/remoto pueden seguir tras cancelar la espera.
+      if (readWork && release) { const done = release; void Promise.allSettled([readWork, imageWork, providerWork]).then(done); }
       else release?.();
     }
   };

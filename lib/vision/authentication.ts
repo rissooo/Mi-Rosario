@@ -1,5 +1,6 @@
 import "server-only";
 import { VisionError } from "./errors";
+import type { VisionDiagnostic } from "./diagnostics";
 
 type UserLookup = () => Promise<{ data: { user: { id: string } | null }; error: unknown }>;
 const INVALID_SESSION_CODES = new Set([
@@ -18,15 +19,21 @@ function invalidSession(error: unknown) {
 }
 
 /** Traduce solo la identidad verificada; nunca propaga diagnósticos de Supabase. */
-export async function authenticateVisionUser(lookup: UserLookup): Promise<string | null> {
+export async function authenticateVisionUser(lookup: UserLookup, diagnostic?: VisionDiagnostic): Promise<string | null> {
+  const report = (error: unknown) => {
+    const status = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : undefined;
+    diagnostic?.event("authentication", "failed", status);
+  };
   try {
     const { data, error } = await lookup();
     if (error) {
+      report(error);
       if (invalidSession(error)) return null;
       throw new VisionError("ANALYSIS_UNAVAILABLE");
     }
     return data.user?.id ?? null;
   } catch (error) {
+    if (!(error instanceof VisionError)) report(error);
     if (invalidSession(error)) return null;
     throw new VisionError("ANALYSIS_UNAVAILABLE");
   }

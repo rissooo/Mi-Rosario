@@ -2,7 +2,7 @@
 
 ## Why
 
-Valen necesita implementar el análisis de fotos sin acoplarlo al guardado de reportes de Agus ni al formulario de Fran. La base actual aporta contratos y fixtures, pero no valida imágenes reales ni consulta Gemini; este cambio define esa funcionalidad para revisión antes de implementarla.
+Valen necesita analizar fotos sin acoplarse al guardado de reportes de Agus ni al formulario de Fran. La base inicial aportó contratos y fixtures; este cambio implementa el análisis y la conexión real exclusivamente local, con una prueba manual autorizada exitosa informada por el usuario.
 
 ## What Changes
 
@@ -33,6 +33,12 @@ No depende de fusionar el PR #3: se diseña contra los contratos presentes en es
 
 Etapa 1 autorizada: implementación local con proveedor simulado inyectable, adaptador preparado para @google/genai y sharp, pruebas sin credenciales ni llamadas reales. Se permite modificar package.json y package-lock.json para dependencias necesarias. Se conservan contratos y autenticación. Gemini 3.8 Flash ya fue elegido y probado en Google AI Studio según el usuario; no se repite selección ni se atribuye aquella prueba a este endpoint.
 
-Etapa 2 pendiente: integración real, revisión de Agus/Fran, datos, producción, admisión distribuida y presupuesto definitivo. La ruta solo se habilita en development sin VERCEL y con activación local explícita; nunca selecciona el proveedor real.
+Etapa 2 local implementada: SDK existente mediante createGeminiProvider, con GEMINI_API_KEY exclusivamente del entorno servidor y flag VISION_LOCAL_GEMINI_REAL=1, solo en development fuera de Vercel. El simulador conserva su flag separado; activar ambos modos produce 503 sin fallback. El único modelo permitido sigue siendo gemini-3.8-flash. El usuario confirmó una prueba real local autorizada HTTP 200. Esta preparación para commit no realiza nuevas llamadas.
 
-No existe API key de Gemini configurada en Next.js, .env.local ni Vercel según el estado confirmado por el usuario. No se crea ni agrega ninguna credencial. Las correcciones autorizadas de Etapa 1 acotan la recepción multipart, validan configuración local, distinguen errores temporales de sesión y rechazan origen antes de la consulta de sesión del handler; no cambian el proxy previo ni los contratos.
+Habilitación pública pendiente: revisiones de Agus/Fran, controles distribuidos, presupuesto definitivo, condiciones de datos y pruebas reales en Vercel/producción. La implementación local no completa esas tareas ni autoriza despliegue.
+
+El usuario configuró privadamente GEMINI_API_KEY en el entorno local del servidor. Su valor no se documenta ni se incorpora al repositorio. No se configura ni habilita esta integración en Vercel o producción. Las correcciones de Etapa 1 conservan sus límites, proxy y contratos.
+
+La prueba manual devolvió pothole/high, título y descripción coherentes según revisión del usuario y dos advertencias; navegador 10670 ms, resultado del servidor 10176 ms. No se guarda imagen ni respuesta completa. El primer 503 permanece sin causa confirmada y no se atribuye a Google o Supabase. Una prueba exitosa no acredita precisión general, presupuesto ni seguridad de producción.
+
+La Etapa 1 está guardada en 069f7e1 y se conserva. Esta ampliación modifica solo el módulo de visión, su ruta/pruebas/documentación y los artefactos de este change; reutiliza dependencias, contratos, validaciones, sesión, admisión y presupuesto existentes.

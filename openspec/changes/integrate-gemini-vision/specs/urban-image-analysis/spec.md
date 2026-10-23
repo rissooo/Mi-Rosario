@@ -6,16 +6,49 @@ Permitir que un vecino autenticado obtenga sugerencias revisables a partir de un
 
 ## ADDED Requirements
 
-### Requirement: Etapa local simulada sin exposición pública
-En Etapa 1 el endpoint SHALL operar solo en desarrollo local habilitado explícitamente y fuera de Vercel, con proveedor simulado sin credenciales ni red de Gemini. El adaptador SDK SHALL quedar preparado por inyección, sin conexión desde la ruta. Producción y controles distribuidos SHALL quedar pendientes de Etapa 2.
+### Requirement: Diagnóstico temporal seguro exclusivamente local
+El módulo SHALL emitir diagnóstico únicamente con VISION_LOCAL_DIAGNOSTICS=1 en development fuera de Vercel, apagado por defecto. SHALL usar UUID aleatorio por solicitud, etapas y categorías cerradas, tiempos aproximados y estados HTTP numéricos. SHALL NOT registrar secretos, identidad, cookies, headers sensibles, imágenes, prompts, respuestas completas ni excepciones crudas, ni ampliar el contrato público.
+
+#### Scenario: Diagnóstico local autorizado
+- **WHEN** una solicitud local se procesa con diagnóstico habilitado
+- **THEN** registra las etapas alcanzadas con el mismo UUID solo en servidor y conserva controles, límite de tiempo y respuestas públicas
+- **THEN** generate ok solo indica devolución del SDK; la aceptación requiere validación y resultado exitosos
+
+#### Scenario: Diagnóstico apagado o entorno bloqueado
+- **WHEN** falta el flag o se ejecuta en producción o Vercel
+- **THEN** no emite estos registros ni habilita llamadas al proveedor
+
+#### Scenario: Fallo sin contenido privado
+- **WHEN** falla autenticación, admisión, imagen, construcción del cliente o proveedor
+- **THEN** registra categorías permitidas y estado numérico cuando existe, sin filtrar el error original ni cambiar la respuesta pública
+- **THEN** network no demuestra fallo de red y generate failed sin generate started no demuestra llamada a Google
+
+### Requirement: Modos locales sin exposición pública
+El endpoint SHALL operar solo en development fuera de Vercel con un único modo explícito: simulación o Gemini real local. Sin flag o con ambos modos activos SHALL responder 503 antes de autenticar o leer el body. El simulador SHALL conservarse sin clave ni red de Gemini. La habilitación pública SHALL quedar pendiente de controles distribuidos y revisión.
 
 #### Scenario: Entorno no autorizado
 - **WHEN** se invoca en producción, Vercel o sin habilitación local
 - **THEN** devuelve 503 ANALYSIS_UNAVAILABLE antes de autenticar o procesar el body
 
 #### Scenario: Simulación explícita
-- **WHEN** una sesión válida usa el endpoint local habilitado
+- **WHEN** una sesión válida usa el endpoint local con solo el modo simulación habilitado
 - **THEN** recibe campos nulos y una aclaración de simulación, sin atribuir análisis visual real al resultado
+
+### Requirement: Conexión real exclusivamente local
+El modo real SHALL requerir VISION_LOCAL_GEMINI_REAL=1 y GEMINI_API_KEY privada del servidor, reutilizar createGeminiProvider y el SDK oficial, y admitir solo gemini-3.8-flash. El cliente SHALL crearse después de las validaciones de origen, sesión, admisión e imagen, sin fallback a otro modelo o al simulador.
+
+#### Scenario: Sin clave o modelo no permitido
+- **WHEN** se activa el modo real sin una clave no vacía o con modelo fuera de la allowlist
+- **THEN** responde 503 ANALYSIS_UNAVAILABLE sin construir cliente ni hacer llamadas reales, sin exponer configuración sensible
+
+#### Scenario: Conexión local autorizada
+- **WHEN** el modo real tiene configuración válida y una solicitud supera todos los controles existentes
+- **THEN** llama al SDK con una representación normalizada temporal, schema cerrado, plazo restante, cancelación y un único intento
+- **THEN** valida el resultado con contratos compartidos y devuelve solo sugerencias editables, sin publicar ni persistir fotografías
+
+#### Scenario: Pruebas de conexión sin consumo
+- **WHEN** la suite verifica el modo real con configuración sintética
+- **THEN** usa fábrica/transporte SDK falsos con red bloqueada, sin credenciales ni solicitudes reales
 
 ### Requirement: Sesión autenticada y origen permitido
 El endpoint SHALL validar la identidad mediante la sesión Supabase existente antes de procesar la imagen o consultar Gemini, y SHALL rechazar orígenes distintos del permitido sin modificar el login existente.
@@ -75,7 +108,7 @@ El endpoint SHALL contrastar MIME, firma y formato detectado y decodificar la im
 - **THEN** devuelve 422 VALIDATION_ERROR y no envía sus bytes al proveedor
 
 ### Requirement: Consulta privada y sin persistencia propia
-El adaptador de Gemini SHALL ser exclusivo del servidor y recibir una representación temporal validada sin metadatos. En Etapa 1 SHALL usarse un proveedor simulado. SHALL NOT crear reportes, objetos de Storage, archivos persistentes ni registros con fotografías, credenciales, cookies o respuestas crudas del proveedor.
+El adaptador de Gemini SHALL ser exclusivo del servidor y recibir una representación temporal validada sin metadatos. El simulador y el modo real local SHALL NOT crear reportes, objetos de Storage, archivos persistentes ni registros con fotografías, credenciales, cookies o respuestas crudas del proveedor.
 
 #### Scenario: Análisis exitoso o fallido
 - **WHEN** finaliza cualquier intento
@@ -88,6 +121,16 @@ El servicio SHALL aplicar un presupuesto total de 20 segundos desde la entrada a
 #### Scenario: Proveedor lento
 - **WHEN** se agota el presupuesto con el cliente conectado
 - **THEN** cancela la operación y devuelve 504 ANALYSIS_TIMEOUT sin aceptar respuestas tardías
+
+#### Scenario: Plazo vencido durante validación o diagnóstico
+- **WHEN** el reloj supera el presupuesto durante validación, sus eventos diagnósticos o serialización de respuesta
+- **THEN** la comprobación final devuelve 504 ANALYSIS_TIMEOUT sin aceptar HTTP 200 ni emitir result ok
+- **THEN** el registro final de éxito solo se agenda después de la decisión de aceptación, fuera del tramo síncrono entre comprobación final y retorno
+
+#### Scenario: Parseo pendiente tras timeout
+- **WHEN** vence el plazo mientras la promesa de recepción o formData sigue pendiente
+- **THEN** devuelve 504 y conserva el cupo hasta finalizar el parseo y cualquier procesamiento/proveedor pendiente
+- **THEN** libera una sola vez cuando las promesas terminan, incluso si rechazan, sin iniciar el proveedor después del timeout
 
 #### Scenario: Cliente desconectado
 - **WHEN** el cliente cancela la solicitud
@@ -136,3 +179,7 @@ Las pruebas de aceptación automatizadas SHALL usar sesión y Gemini simulados, 
 - **WHEN** se ejecuta la suite con servicios externos inaccesibles
 - **THEN** prueba solicitud multipart, validación, proveedor simulado y sobre público y detecta cualquier acceso de red no autorizado
 - **THEN** no requiere el formulario de Fran ni el backend funcional de Agus
+
+#### Scenario: Entorno de pruebas sin credenciales heredadas
+- **WHEN** el runner inicia el proceso hijo desde una terminal con configuración privada
+- **THEN** transmite solo variables permitidas del sistema y configuración propia de tests, sin claves, tokens, flags reales o NODE_OPTIONS, sin modificar la terminal padre

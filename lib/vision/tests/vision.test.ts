@@ -6,8 +6,10 @@ import { POST } from "../../../app/api/vision/analyze/route";
 import { admissionLimitsFromEnv, DEFAULT_ADMISSION_LIMITS, LocalAdmission } from "../admission";
 import { authenticateVisionUser } from "../authentication";
 import { Deadline } from "../deadline";
+import { createVisionDiagnostic } from "../diagnostics";
 import { VisionError } from "../errors";
 import { normalizeImage } from "../image";
+import { selectLocalVisionProvider } from "../local";
 import { readImage } from "../multipart";
 import { createGeminiProvider, createSimulatedProvider, type VisionProvider } from "../provider";
 import { createAnalyzeHandler, localSimulationEnabled, type VisionDependencies } from "../service";
@@ -16,6 +18,88 @@ import { INITIAL_CATEGORIES } from "../../contracts/categories";
 import { MAX_IMAGE_BYTES, MAX_MULTIPART_BYTES } from "../../contracts/reports";
 
 const empty = () => ({ title: null, description: null, categoryId: null, severity: null, warnings: [] });
+const diagnosticEnv = { NODE_ENV: "development", VISION_LOCAL_DIAGNOSTICS: "1" };
+
+test("diagnóstico apagado por defecto y bloqueado en producción/Vercel", () => {
+  const lines: string[] = [];
+  for (const env of [{}, { NODE_ENV: "development" }, { ...diagnosticEnv, NODE_ENV: "production" }, { ...diagnosticEnv, VERCEL: "" }]) {
+    createVisionDiagnostic(env, line => lines.push(line)).event("configuration", "started");
+  }
+  assert.deepEqual(lines, []);
+});
+
+test("diagnóstico cerrado: UUID por solicitud, sin contexto privado ni excepciones del logger", () => {
+  const lines: string[] = [];
+  const diagnostic = createVisionDiagnostic({ ...diagnosticEnv, GEMINI_API_KEY: "secreto-canario" }, line => lines.push(line));
+  diagnostic.event("configuration", "ok");
+  diagnostic.event("generate", "provider_http", 429);
+  diagnostic.event("secreto-canario" as "image", "failed");
+  diagnostic.event("image", "secreto-canario" as "failed");
+  createVisionDiagnostic(diagnosticEnv, line => lines.push(line)).event("result", "ok", 200);
+  assert.equal(lines.length, 3);
+  const records = lines.map(line => JSON.parse(line));
+  assert.equal(records[0].requestId, records[1].requestId);
+  assert.notEqual(records[0].requestId, records[2].requestId);
+  assert.match(records[0].requestId, /^[0-9a-f-]{36}$/);
+  for (const record of records) assert.ok(Object.keys(record).every(key => ["source", "requestId", "stage", "category", "elapsedMs", "stepMs", "status"].includes(key)));
+  assert.ok(!lines.join().includes("secreto-canario"));
+  assert.doesNotThrow(() => createVisionDiagnostic(diagnosticEnv, () => { throw new Error("privado"); }).event("image", "started"));
+});
+
+test("diagnóstico distingue origen, auth, capacidad, imagen y validación sin cambiar respuestas", async () => {
+  const cases: [string, Partial<VisionDependencies>, Request, number][] = [
+    ["origin", {}, request(undefined, undefined, { headers: { origin: "https://otro.invalid" } }), 403],
+    ["authentication", { authenticate: async () => { throw new VisionError("ANALYSIS_UNAVAILABLE"); } }, request(), 503],
+    ["admission", { admission: { acquire() { throw new VisionError("ANALYSIS_UNAVAILABLE", 60); } } }, request(), 503],
+    ["image", {}, request(), 422],
+    ["validation", { provider: { async analyze() { return { secret: "respuesta-privada" }; } } }, request(file(await imageBytes())), 502],
+  ];
+  for (const [stage, overrides, req, status] of cases) {
+    const lines: string[] = [];
+    const diagnostic = createVisionDiagnostic(diagnosticEnv, line => lines.push(line));
+    const response = await setup({ ...overrides, diagnostic }).handle(req);
+    assert.equal(response.status, status);
+    assert.ok(lines.map(line => JSON.parse(line)).some(record => record.stage === stage && record.category === "failed" && record.status === status));
+    assert.ok(!lines.join().includes("usuario-prueba"));
+    assert.ok(!lines.join().includes("respuesta-privada"));
+    assert.ok(!(await response.text()).includes("requestId"));
+    assert.equal(response.headers.has("x-request-id"), false);
+  }
+});
+
+test("diagnóstico SDK falso registra cliente, generate y status sin error crudo", async () => {
+  const lines: string[] = [];
+  const diagnostic = createVisionDiagnostic(diagnosticEnv, line => lines.push(line));
+  const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "clave-privada" }, () => ({ models: {
+    async generateContent() { throw Object.assign(new Error("token-cookie-prompt-respuesta-privados"), { status: 429 }); },
+  } }), diagnostic)!;
+  const response = await setup({ provider, diagnostic }).handle(request(file(await imageBytes())));
+  assert.equal(response.status, 503);
+  const records = lines.map(line => JSON.parse(line));
+  assert.ok(records.some(record => record.stage === "client" && record.category === "ok"));
+  assert.ok(records.some(record => record.stage === "generate" && record.category === "started"));
+  assert.ok(records.some(record => record.stage === "generate" && record.category === "provider_http" && record.status === 429));
+  assert.ok(!lines.join().includes("clave-privada"));
+  assert.ok(!lines.join().includes("token-cookie-prompt-respuesta-privados"));
+  await assert.rejects(authenticateVisionUser(async () => ({ data: { user: null }, error: { status: 503, message: "auth-privada" } }), diagnostic));
+  assert.ok(!lines.join().includes("auth-privada"));
+  assert.ok(lines.map(line => JSON.parse(line)).some(record => record.stage === "authentication" && record.status === 503));
+});
+
+test("diagnóstico distingue configuración y construcción sin iniciar generate", async () => {
+  const lines: string[] = [];
+  const diagnostic = createVisionDiagnostic(diagnosticEnv, line => lines.push(line));
+  selectLocalVisionProvider({ NODE_ENV: "development" }, undefined, diagnostic);
+  assert.throws(() => selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1" }, undefined, diagnostic));
+  assert.throws(() => selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "privado", GEMINI_MODEL: "otro" }, undefined, diagnostic));
+  const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "privado" }, () => { throw new TypeError("privado"); }, diagnostic)!;
+  assert.equal((await setup({ provider, diagnostic }).handle(request(file(await imageBytes())))).status, 503);
+  const records = lines.map(line => JSON.parse(line));
+  for (const category of ["flags_invalid", "key_missing", "model_rejected"]) assert.ok(records.some(record => record.stage === "configuration" && record.category === category));
+  assert.ok(records.some(record => record.stage === "client" && record.category === "failed"));
+  assert.ok(!records.some(record => record.stage === "generate" && record.category === "started"));
+  assert.ok(!lines.join().includes("privado"));
+});
 const signal = () => new AbortController().signal;
 const file = (bytes: Uint8Array, type = "image/png") => new File([Uint8Array.from(bytes)], "sin-extension", { type });
 async function imageBytes(format: "png" | "jpeg" | "webp" = "png", width = 12, height = 8) {
@@ -41,6 +125,75 @@ async function code(response: Response, expected: string, status: number) {
   assert.equal((await response.json()).error.code, expected);
 }
 function isCode(code: string) { return (error: unknown) => error instanceof VisionError && error.code === code; }
+
+test("regresión deadline: rechaza expiración durante validación o serialización sin aceptar éxito", async (t) => {
+  const bytes = await imageBytes();
+  for (const during of ["validation-start", "validation-end", "serialization"] as const) {
+    let now = 0;
+    const records: string[] = [];
+    const clock = t.mock.method(performance, "now", () => now);
+    const originalJson = Response.json;
+    const json = t.mock.method(Response, "json", (...args: Parameters<typeof Response.json>) => {
+      const response = originalJson(...args);
+      if (during === "serialization") now = 101;
+      return response;
+    });
+    try {
+      const app = setup({ budgetMs: 100, diagnostic: { event(stage, category) {
+        records.push(`${stage}:${category}`);
+        if (stage === "validation" && category === (during === "validation-start" ? "started" : during === "validation-end" ? "ok" : "")) now = 101;
+      } } });
+      await code(await app.handle(request(file(bytes))), "ANALYSIS_TIMEOUT", 504);
+      assert.equal(records.includes("result:ok"), false);
+      assert.equal(records.includes("result:failed"), true);
+    } finally { json.mock.restore(); clock.mock.restore(); }
+  }
+});
+
+test("regresión multipart pendiente: conserva cupo tras timeout y lo libera al finalizar o rechazar parseo", async (t) => {
+  const bytes = await imageBytes();
+  for (const reject of [false, true]) {
+    let entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const original = Response.prototype.formData;
+    const parser = t.mock.method(Response.prototype, "formData", async function (this: Response) {
+      entered();
+      await gate;
+      if (reject) throw new Error("Fallo sintético de parseo");
+      return original.call(this);
+    });
+    const admission = new LocalAdmission();
+    let released = 0;
+    const app = setup({ budgetMs: 25, admission: { acquire(userId) {
+      const release = admission.acquire(userId);
+      return () => { released++; release(); };
+    } } });
+    try {
+      const pending = app.handle(request(file(bytes)));
+      await ready;
+      await code(await pending, "ANALYSIS_TIMEOUT", 504);
+      assert.equal(released, 0);
+      assert.throws(() => admission.acquire("usuario-prueba"), isCode("ANALYSIS_UNAVAILABLE"));
+      finish();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      assert.equal(released, 1);
+      admission.acquire("usuario-prueba")();
+      assert.equal(app.calls(), 0);
+    } finally {
+      finish();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      parser.mock.restore();
+    }
+  }
+});
+
+test("runner aislado: no hereda credenciales ni opciones privadas del proceso padre", () => {
+  const forbidden = Object.keys(process.env).filter(key => /KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i.test(key));
+  assert.equal(forbidden.length, 0, "El runner debe excluir credenciales del entorno hijo");
+  assert.equal(process.env.NODE_OPTIONS, undefined);
+});
 
 test("entorno local explícito y bloqueo real de la ruta en producción", async () => {
   assert.equal(localSimulationEnabled({ NODE_ENV: "development", VISION_LOCAL_SIMULATION: "1" }), true);
@@ -452,4 +605,133 @@ test("regresión admisión: configuración validada, defaults seguros y límites
   }
   assert.throws(() => new LocalAdmission(undefined, { maxActive: NaN }), isCode("ANALYSIS_UNAVAILABLE"));
   assert.throws(() => new LocalAdmission(undefined, { maxAttempts: 0 }), isCode("ANALYSIS_UNAVAILABLE"));
+});
+
+test("modo real local: sin flag, con modos ambiguos, producción o Vercel no lee clave ni crea SDK", () => {
+  let clients = 0;
+  for (const configuration of [
+    { NODE_ENV: "development" },
+    { NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "0" },
+    { NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", VISION_LOCAL_SIMULATION: "1" },
+    { NODE_ENV: "production", VISION_LOCAL_GEMINI_REAL: "1" },
+    { NODE_ENV: "test", VISION_LOCAL_GEMINI_REAL: "1" },
+    { NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", VERCEL: "1" },
+    { NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", VERCEL: "" },
+  ]) {
+    const env = Object.defineProperty({ ...configuration }, "GEMINI_API_KEY", { get() { throw new Error("No debe leer la clave"); } });
+    assert.equal(selectLocalVisionProvider(env, () => { clients++; throw new Error("No debe crear SDK"); }), null);
+  }
+  assert.equal(clients, 0);
+});
+
+test("simulador conserva su flag y no consulta clave ni transporte real", async () => {
+  const env = Object.defineProperty({ NODE_ENV: "development", VISION_LOCAL_SIMULATION: "1" }, "GEMINI_API_KEY", { get() { throw new Error("No debe leer clave"); } });
+  const provider = selectLocalVisionProvider(env, () => { throw new Error("No debe crear SDK"); });
+  assert.ok(provider);
+  const app = setup({ provider });
+  const result = await app.handle(request(file(await imageBytes())));
+  assert.equal(result.status, 200);
+  assert.match((await result.json()).data.suggestion.warnings[0], /Simulación local/);
+});
+
+test("modo real local: falta de clave o modelo desconocido falla cerrado antes de crear SDK", () => {
+  let calls = 0;
+  const factory = () => { calls++; throw new Error("No debe crear SDK"); };
+  const base = { NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1" };
+  for (const value of [undefined, "", "   "]) {
+    assert.throws(() => selectLocalVisionProvider({ ...base, GEMINI_API_KEY: value }, factory), isCode("ANALYSIS_UNAVAILABLE"));
+  }
+  for (const model of ["modelo-desconocido", "latest", "preview", "gemini-3.8-flash-preview"]) {
+    assert.throws(() => selectLocalVisionProvider({ ...base, GEMINI_API_KEY: "sintetica", GEMINI_MODEL: model }, factory), isCode("ANALYSIS_UNAVAILABLE"));
+  }
+  assert.equal(calls, 0);
+});
+
+test("modo real local: la ruta bloquea sin flag, sin clave, con dos flags y en Vercel", async () => {
+  const saved = { ...process.env };
+  try {
+    for (const config of [
+      {}, { VISION_LOCAL_GEMINI_REAL: "1" },
+      { VISION_LOCAL_GEMINI_REAL: "1", VISION_LOCAL_SIMULATION: "1" },
+      { VISION_LOCAL_GEMINI_REAL: "1", VERCEL: "1" },
+    ]) {
+      process.env = { ...saved, NODE_ENV: "development", VISION_LOCAL_SIMULATION: "0", VISION_LOCAL_GEMINI_REAL: "0", GEMINI_API_KEY: "", ...config };
+      await code(await POST(request()), "ANALYSIS_UNAVAILABLE", 503);
+    }
+  } finally { process.env = saved; }
+});
+
+test("modo real local: SDK diferido tras origen, sesión, admisión e imagen válidos", async () => {
+  let clients = 0;
+  const env = { NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "sintetica" };
+  const provider = selectLocalVisionProvider(env, () => { clients++; throw new Error("No debe crear SDK ante rechazo"); });
+  assert.ok(provider);
+  const app = setup({ provider });
+  await code(await app.handle(request(undefined, undefined, { headers: { origin: "https://otro.invalid" } })), "FORBIDDEN", 403);
+  await code(await setup({ provider, authenticate: async () => null }).handle(request()), "UNAUTHENTICATED", 401);
+  await code(await setup({ provider, admission: { acquire() { throw new VisionError("ANALYSIS_UNAVAILABLE"); } } }).handle(request()), "ANALYSIS_UNAVAILABLE", 503);
+  await code(await app.handle(request()), "VALIDATION_ERROR", 422);
+  assert.equal(clients, 0);
+});
+
+test("modo real local: SDK oficial con fetch falso atraviesa validadores sin filtrar secretos", async () => {
+  let clients = 0; let requests = 0;
+  const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "valor-sintetico", GEMINI_MODEL: "gemini-3.8-flash" }, (options) => {
+    clients++;
+    assert.equal(options.vertexai, false);
+    assert.equal(options.apiKey, "valor-sintetico");
+    assert.equal(options.httpOptions?.retryOptions?.attempts, 1);
+    assert.equal(options.httpOptions?.baseUrl, "https://generativelanguage.googleapis.com");
+    return new GoogleGenAI({ ...options, httpOptions: { ...options.httpOptions, fetch: async (url, init) => {
+      requests++;
+      assert.match(String(url), /^https:\/\/generativelanguage\.googleapis\.com\//);
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.generationConfig.responseMimeType, "application/json");
+      assert.deepEqual(body.generationConfig.responseJsonSchema, suggestionSchema());
+      return Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text: JSON.stringify({ ...empty(), title: "Bache visible", description: "Se observa deterioro en la calzada.", categoryId: "pothole", severity: "low" }) }] } }] });
+    } } });
+  });
+  assert.ok(provider); assert.equal(clients, 0);
+  const result = await setup({ provider }).handle(request(file(await imageBytes())));
+  assert.equal(result.status, 200);
+  const text = await result.text(); assert.doesNotMatch(text, /valor-sintetico|apiKey/);
+  assert.equal(JSON.parse(text).data.suggestion.categoryId, "pothole");
+  assert.equal(clients, 1); assert.equal(requests, 1);
+});
+
+test("modo real local: salida inválida y fallos SDK siguen el contrato sin consumo real", async () => {
+  for (const [status, text, expected, http] of [
+    [200, JSON.stringify({ ...empty(), categoryId: "inventada" }), "ANALYSIS_FAILED", 502],
+    [200, "no es JSON", "ANALYSIS_FAILED", 502],
+    [429, "", "ANALYSIS_UNAVAILABLE", 503], [503, "", "ANALYSIS_UNAVAILABLE", 503],
+    [504, "", "ANALYSIS_TIMEOUT", 504],
+  ] as const) {
+    let calls = 0;
+    const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "sintetica" }, (options) => new GoogleGenAI({ ...options, httpOptions: { ...options.httpOptions, fetch: async () => {
+      calls++;
+      return status === 200
+        ? Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text }] } }] })
+        : Response.json({ error: { code: status, message: "diagnostico-privado" } }, { status });
+    } } }));
+    assert.ok(provider);
+    const response = await setup({ provider }).handle(request(file(await imageBytes())));
+    await code(response, expected, http);
+    assert.equal(calls, 1);
+  }
+});
+
+test("modo real local: plazo total cancela el SDK y no reintenta", async () => {
+  let calls = 0; let aborted = false;
+  const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "sintetica" }, (options) => new GoogleGenAI({ ...options, httpOptions: { ...options.httpOptions, fetch: async (_url, init) => {
+    calls++;
+    return new Promise<Response>((_resolve, reject) => {
+      const abort = () => { aborted = true; reject(new DOMException("Cancelada", "AbortError")); };
+      init?.signal?.addEventListener("abort", abort, { once: true });
+      if (init?.signal?.aborted) abort();
+    });
+  } } }));
+  assert.ok(provider);
+  const response = await setup({ provider, budgetMs: 100, normalize: async () => ({ bytes: Buffer.from("normalizada"), mimeType: "image/png" }) }).handle(request(file(await imageBytes())));
+  await code(response, "ANALYSIS_TIMEOUT", 504);
+  assert.equal(aborted, true); assert.equal(calls, 1);
 });

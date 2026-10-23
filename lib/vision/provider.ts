@@ -3,6 +3,7 @@ import { ThinkingLevel, type GenerateContentParameters } from "@google/genai";
 import { MAX_JSON_BYTES } from "../contracts/reports";
 import type { NormalizedImage } from "./image";
 import { VisionError } from "./errors";
+import type { VisionDiagnostic } from "./diagnostics";
 import { suggestionSchema, SYSTEM_INSTRUCTION } from "./prompt";
 
 export interface VisionProvider {
@@ -12,9 +13,9 @@ type Reply = { text?: string; candidates?: { finishReason?: string }[] };
 export type Generate = (request: GenerateContentParameters) => Promise<Reply>;
 const ALLOWED_GEMINI_MODELS: readonly string[] = Object.freeze(["gemini-3.8-flash"]);
 
-/** Solo se conecta a un transporte suministrado explícitamente. La ruta local nunca usa este adaptador. */
-export function createGeminiProvider(generate: Generate, model = process.env.GEMINI_MODEL ?? "gemini-3.8-flash"): VisionProvider {
-  if (!ALLOWED_GEMINI_MODELS.includes(model)) throw new VisionError("ANALYSIS_UNAVAILABLE");
+/** Solo se conecta al transporte explícito: simulado en tests o SDK en modo real local autorizado. */
+export function createGeminiProvider(generate: Generate, model = process.env.GEMINI_MODEL ?? "gemini-3.8-flash", diagnostic?: VisionDiagnostic): VisionProvider {
+  if (!ALLOWED_GEMINI_MODELS.includes(model)) { diagnostic?.event("configuration", "model_rejected", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }
   return {
     async analyze(image, signal, remainingMs) {
       if (signal.aborted || remainingMs <= 0) throw new VisionError("ANALYSIS_TIMEOUT");
@@ -32,12 +33,15 @@ export function createGeminiProvider(generate: Generate, model = process.env.GEM
             httpOptions: { timeout: Math.min(20_000, remainingMs), retryOptions: { attempts: 1 } },
           },
         });
+        diagnostic?.event("generate", "ok");
         if (signal.aborted) throw new VisionError("ANALYSIS_TIMEOUT");
         if (reply.candidates?.length !== 1 || reply.candidates[0].finishReason !== "STOP" || !reply.text ||
           Buffer.byteLength(reply.text, "utf8") > MAX_JSON_BYTES) throw new VisionError("ANALYSIS_FAILED");
         try { return JSON.parse(reply.text) as unknown; }
         catch { throw new VisionError("ANALYSIS_FAILED"); }
       } catch (error) {
+        const safeStatus = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : undefined;
+        diagnostic?.event("generate", signal.aborted ? "timeout" : safeStatus !== undefined ? "provider_http" : error instanceof TypeError ? "network" : "failed", safeStatus);
         if (signal.aborted) throw new VisionError("ANALYSIS_TIMEOUT");
         if (error instanceof VisionError) throw error;
         const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : undefined;

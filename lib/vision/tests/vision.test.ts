@@ -289,6 +289,43 @@ test("APNG y WebP animado se rechazan sin seleccionar un frame", async () => {
   await assert.rejects(normalizeImage(file(animated, "image/webp"), signal()), isCode("VALIDATION_ERROR"));
 });
 
+test("regresión WebP: rechaza varios bloques VP8/VP8L aunque Sharp vea una sola página", async () => {
+  const lossless = await sharp({ create: { width: 12, height: 8, channels: 3, background: "#aabbcc" } }).webp({ lossless: true }).toBuffer();
+  const lossy = await imageBytes("webp");
+  assert.equal(lossless.toString("ascii", 12, 16), "VP8L");
+  assert.equal(lossy.toString("ascii", 12, 16), "VP8 ");
+  assert.equal((await normalizeImage(file(lossless, "image/webp"), signal())).mimeType, "image/jpeg");
+  for (const [first, second] of [[lossless, lossless], [lossy, lossy], [lossless, lossy], [lossy, lossless]]) {
+    // Un único RIFF con tamaño correcto y dos bloques completos, no dos archivos concatenados.
+    const multiple = Buffer.concat([first, second.subarray(12)]);
+    multiple.writeUInt32LE(multiple.length - 8, 4);
+    if (first === lossless && second === lossless) {
+      assert.equal((await sharp(multiple).metadata()).pages ?? 1, 1);
+      assert.ok((await sharp(multiple).jpeg().toBuffer()).length > 0);
+    }
+    await assert.rejects(normalizeImage(file(multiple, "image/webp"), signal()), isCode("VALIDATION_ERROR"));
+    const app = setup();
+    await code(await app.handle(request(file(multiple, "image/webp"))), "VALIDATION_ERROR", 422);
+    assert.equal(app.calls(), 0);
+  }
+});
+
+test("WebP legítimos: conserva compresión con pérdida, sin pérdida, transparencia y metadatos", async () => {
+  for (const lossless of [false, true]) {
+    for (const alpha of [false, true]) {
+      const source = await sharp({ create: { width: 12, height: 8, channels: alpha ? 4 : 3,
+        background: { r: 170, g: 187, b: 204, alpha: alpha ? 0.5 : 1 } } })
+        .withExif({ IFD0: { Artist: "Dato sintético" } }).webp({ lossless }).toBuffer();
+      assert.equal(source.toString("ascii", 12, 16), "VP8X");
+      const normalized = await normalizeImage(file(source, "image/webp"), signal());
+      const meta = await sharp(normalized.bytes).metadata();
+      assert.equal(normalized.mimeType, alpha ? "image/png" : "image/jpeg");
+      assert.equal(meta.width, 12); assert.equal(meta.height, 8);
+      assert.equal(meta.hasAlpha, alpha); assert.equal(meta.exif, undefined);
+    }
+  }
+});
+
 test("admisión: ventana fija, un activo por usuario, dos globales, tabla acotada", () => {
   let now = 0;
   const admission = new LocalAdmission(() => now, { maxEntries: 3 });
@@ -391,6 +428,53 @@ test("SDK oficial serializa schema cerrado y recibe éxito desde transporte fals
   const config = payload?.generationConfig as Record<string, unknown>;
   assert.equal(config.responseMimeType, "application/json");
   assert.deepEqual(config.responseJsonSchema, suggestionSchema());
+});
+
+test("regresión SDK: HTTP 200 con JSON null u otra forma inválida es 502 y conserva éxitos", async (t) => {
+  let body: unknown;
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; return Response.json(body); });
+  const bytes = await imageBytes();
+  for (body of [null, false, 42, "respuesta inválida", [], {}]) {
+    calls = 0;
+    const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "sintetica" });
+    assert.ok(provider);
+    const response = await setup({ provider }).handle(request(file(bytes)));
+    await code(response, "ANALYSIS_FAILED", 502);
+    assert.equal(response.headers.get("retry-after"), null);
+    assert.equal(calls, 1);
+  }
+  body = { candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text: JSON.stringify(empty()) }] } }] };
+  calls = 0;
+  const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "sintetica" });
+  assert.ok(provider);
+  const response = await setup({ provider }).handle(request(file(bytes)));
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).data.suggestion, empty());
+  assert.equal(calls, 1);
+});
+
+test("regresión SDK: conserva 503 para red e indisponibilidad y 504 para timeout", async (t) => {
+  let transport: typeof fetch;
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", (...args: Parameters<typeof fetch>) => { calls++; return transport(...args); });
+  const bytes = await imageBytes();
+  const cases = [
+    { transport: async () => { throw new TypeError("Fallo de red sintético"); }, code: "ANALYSIS_UNAVAILABLE", status: 503 },
+    { transport: async () => new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("Lectura interrumpida")); } })), code: "ANALYSIS_UNAVAILABLE", status: 503 },
+    ...[429, 503].map(status => ({ transport: async () => Response.json({ error: { code: status, message: "Detalle privado" } }, { status }), code: "ANALYSIS_UNAVAILABLE", status: 503 })),
+    ...[408, 504].map(status => ({ transport: async () => Response.json({ error: { code: status, message: "Detalle privado" } }, { status }), code: "ANALYSIS_TIMEOUT", status: 504 })),
+  ];
+  for (const entry of cases) {
+    transport = entry.transport;
+    calls = 0;
+    const provider = selectLocalVisionProvider({ NODE_ENV: "development", VISION_LOCAL_GEMINI_REAL: "1", GEMINI_API_KEY: "sintetica" });
+    assert.ok(provider);
+    const response = await setup({ provider }).handle(request(file(bytes)));
+    await code(response, entry.code, entry.status);
+    assert.equal(response.headers.get("retry-after"), entry.status === 503 ? "60" : null);
+    assert.equal(calls, 1);
+  }
 });
 
 test("rechaza imágenes concatenadas y aplica límite de píxeles antes del proveedor", async () => {

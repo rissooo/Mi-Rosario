@@ -2,7 +2,7 @@ import "server-only";
 import { GoogleGenAI, type GoogleGenAIOptions } from "@google/genai";
 import { VisionError } from "./errors";
 import type { VisionDiagnostic } from "./diagnostics";
-import { createGeminiProvider, createSimulatedProvider, type Generate, type VisionProvider } from "./provider";
+import { createGeminiFetch, createGeminiProvider, createSimulatedProvider, type Generate, type VisionProvider } from "./provider";
 
 type LocalEnvironment = Readonly<Record<string, string | undefined>>;
 type ClientFactory = (options: GoogleGenAIOptions) => { models: { generateContent: Generate } };
@@ -32,6 +32,7 @@ export function selectLocalVisionProvider(
       httpOptions: {
         baseUrl: "https://generativelanguage.googleapis.com",
         apiVersion: "v1beta", retryOptions: { attempts: 1 },
+        fetch: createGeminiFetch(),
       },
     }); } catch (error) { diagnostic?.event("client", "failed"); throw error; }
     diagnostic?.event("client", "ok");

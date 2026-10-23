@@ -31,14 +31,17 @@ function animatedPng(bytes: Buffer) {
 function checkWebp(bytes: Buffer) {
   if (bytes.length < 12 || bytes.readUInt32LE(4) + 8 !== bytes.length) throw new VisionError("VALIDATION_ERROR");
   let offset = 12;
+  let imageChunks = 0;
   while (offset + 8 <= bytes.length) {
     const kind = bytes.toString("ascii", offset, offset + 4);
     const size = bytes.readUInt32LE(offset + 4);
     if (size > bytes.length - offset - 8 || kind === "ANIM" || kind === "ANMF" ||
       (kind === "VP8X" && size > 0 && (bytes[offset + 8] & 2) !== 0)) throw new VisionError("VALIDATION_ERROR");
+    // El contenedor estático tiene un único bloque de imagen; VP8X y ALPH no cuentan.
+    if ((kind === "VP8 " || kind === "VP8L") && ++imageChunks > 1) throw new VisionError("VALIDATION_ERROR");
     offset += 8 + size + (size % 2);
   }
-  if (offset !== bytes.length) throw new VisionError("VALIDATION_ERROR");
+  if (offset !== bytes.length || imageChunks !== 1) throw new VisionError("VALIDATION_ERROR");
 }
 
 function checkJpeg(bytes: Buffer) {

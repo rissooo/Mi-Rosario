@@ -13,6 +13,22 @@ type Reply = { text?: string; candidates?: { finishReason?: string }[] };
 export type Generate = (request: GenerateContentParameters) => Promise<Reply>;
 const ALLOWED_GEMINI_MODELS: readonly string[] = Object.freeze(["gemini-3.8-flash"]);
 
+/** Valida el JSON antes de que el SDK agregue propiedades a la respuesta HTTP exitosa. */
+export function createGeminiFetch(transport: typeof fetch = fetch): typeof fetch {
+  return async (input, init) => {
+    const response = await transport(input, init);
+    if (response.ok) {
+      const parseJson = response.json.bind(response);
+      response.json = async () => {
+        const body: unknown = await parseJson();
+        if (body === null || typeof body !== "object" || Array.isArray(body)) throw new VisionError("ANALYSIS_FAILED");
+        return body;
+      };
+    }
+    return response;
+  };
+}
+
 /** Solo se conecta al transporte explícito: simulado en tests o SDK en modo real local autorizado. */
 export function createGeminiProvider(generate: Generate, model = process.env.GEMINI_MODEL ?? "gemini-3.8-flash", diagnostic?: VisionDiagnostic): VisionProvider {
   if (!ALLOWED_GEMINI_MODELS.includes(model)) { diagnostic?.event("configuration", "model_rejected", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }

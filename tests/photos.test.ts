@@ -3,10 +3,12 @@ import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   compensateRemovePhotos,
+  getPublicPhotoPath,
   getPublicPhotoUrl,
   getStoragePath,
   REPORTS_PUBLIC_BUCKET,
   REPORTS_STORAGE_BUCKET,
+  ReportPhotoError,
   sanitizeImageMetadata,
   sniffImageMimeType,
   uploadReportPhoto,
@@ -34,6 +36,24 @@ function concat(...chunks: Uint8Array[]): Uint8Array {
 
 function asciiBytes(value: string): Uint8Array {
   return new Uint8Array(Buffer.from(value, "ascii"));
+}
+
+function jpegSegment(marker: number, data: Uint8Array): Uint8Array {
+  const length = data.length + 2;
+  return concat(new Uint8Array([0xff, marker, length >> 8, length & 0xff]), data);
+}
+
+function minimalJpegWithMetadataAndTrailingData(): Uint8Array {
+  return concat(
+    new Uint8Array([0xff, 0xd8]),
+    jpegSegment(0xe1, asciiBytes("Exif\u0000\u0000GPS coordinates")),
+    jpegSegment(0xe1, asciiBytes("http://ns.adobe.com/xap/1.0/\u0000XMP private note")),
+    jpegSegment(0xed, asciiBytes("Photoshop 3.0\u0000IPTC private note")),
+    jpegSegment(0xfe, asciiBytes("private JPEG comment")),
+    new Uint8Array([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]),
+    new Uint8Array([0x11, 0x22, 0xff, 0xd9]),
+    asciiBytes("trailing private data"),
+  );
 }
 
 function pngChunk(type: string, data: Uint8Array): Uint8Array {
@@ -96,6 +116,12 @@ test("getStoragePath constructs canonical author-scoped path", () => {
   assert.throws(() => getStoragePath("user-123", ""));
 });
 
+test("getPublicPhotoPath usa la extensión correspondiente al MIME de la copia", () => {
+  assert.equal(getPublicPhotoPath("report-1", "image/jpeg"), "report-1.jpg");
+  assert.equal(getPublicPhotoPath("report-2", "image/png"), "report-2.png");
+  assert.equal(getPublicPhotoPath("report-3", "image/webp"), "report-3.webp");
+});
+
 test("getPublicPhotoUrl usa la ruta de la copia en el bucket público", () => {
   let requestedBucket = "";
   let requestedPath = "";
@@ -125,6 +151,19 @@ test("sanitizeImageMetadata elimina segmentos APP de JPEG con EXIF", () => {
   assert.deepEqual(Array.from(sanitized.slice(0, 2)), [0xff, 0xd8]);
 });
 
+test("sanitizeImageMetadata elimina EXIF, XMP, IPTC y comentarios JPEG, y descarta bytes tras EOI", () => {
+  const sanitized = sanitizeImageMetadata(minimalJpegWithMetadataAndTrailingData(), "image/jpeg");
+  const contents = Buffer.from(sanitized).toString("latin1");
+
+  assert.equal(sniffImageMimeType(sanitized), "image/jpeg");
+  assert.equal(contents.includes("Exif"), false);
+  assert.equal(contents.includes("http://ns.adobe.com/xap/1.0/"), false);
+  assert.equal(contents.includes("Photoshop 3.0"), false);
+  assert.equal(contents.includes("private JPEG comment"), false);
+  assert.equal(contents.includes("trailing private data"), false);
+  assert.deepEqual(Array.from(sanitized.slice(-2)), [0xff, 0xd9]);
+});
+
 test("sanitizeImageMetadata elimina eXIf y chunks de texto PNG", () => {
   const sanitized = sanitizeImageMetadata(minimalPngWithMetadata(), "image/png");
   const contents = Buffer.from(sanitized).toString("latin1");
@@ -147,6 +186,43 @@ test("sanitizeImageMetadata rechaza estructuras incompletas que no puede analiza
   assert.throws(() => sanitizeImageMetadata(JPEG_HEADER.slice(0, 8), "image/jpeg"), /JPEG/);
   assert.throws(() => sanitizeImageMetadata(PNG_HEADER, "image/png"), /PNG/);
   assert.throws(() => sanitizeImageMetadata(WEBP_HEADER, "image/webp"), /WebP/);
+});
+
+test("sanitizeImageMetadata rechaza JPEG truncado o con longitudes de segmento inválidas como error de validación", () => {
+  const invalidLength = new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x01]);
+  const truncatedPayload = new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x08, 0x45, 0x78]);
+  const truncatedScan = JPEG_HEADER.slice(0, -2);
+
+  for (const bytes of [invalidLength, truncatedPayload, truncatedScan]) {
+    assert.throws(
+      () => sanitizeImageMetadata(bytes, "image/jpeg"),
+      (error) => error instanceof ReportPhotoError && error.kind === "validation" && error.apiCode === "UNSUPPORTED_MEDIA_TYPE",
+    );
+  }
+});
+
+test("sanitizeImageMetadata rechaza PNG y WebP truncados o con longitudes inválidas como error de validación", () => {
+  const invalidPngLength = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0xff, 0xff, 0xff, 0xff, 0x49, 0x48, 0x44, 0x52,
+  ]);
+  const truncatedPng = minimalPngWithMetadata().slice(0, -1);
+  const invalidWebpLength = minimalWebpWithExif().slice();
+  new DataView(invalidWebpLength.buffer, invalidWebpLength.byteOffset, invalidWebpLength.byteLength)
+    .setUint32(16, 0xffffffff, true);
+  const truncatedWebp = minimalWebpWithExif().slice(0, -1);
+
+  for (const [bytes, mimeType] of [
+    [invalidPngLength, "image/png"],
+    [truncatedPng, "image/png"],
+    [invalidWebpLength, "image/webp"],
+    [truncatedWebp, "image/webp"],
+  ] as const) {
+    assert.throws(
+      () => sanitizeImageMetadata(bytes, mimeType),
+      (error) => error instanceof ReportPhotoError && error.kind === "validation" && error.apiCode === "UNSUPPORTED_MEDIA_TYPE",
+    );
+  }
 });
 
 test("uploadReportPhoto validates size, magic bytes and calls storage.upload", async () => {

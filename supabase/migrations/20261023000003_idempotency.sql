@@ -157,6 +157,8 @@ DECLARE
   v_key_status TEXT;
   v_key_hash TEXT;
   v_report_owner UUID;
+  v_original_extensions TEXT;
+  v_public_extension TEXT;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
@@ -201,23 +203,48 @@ BEGIN
     RAISE EXCEPTION 'IDEMPOTENCY_KEY_NOT_IN_PROGRESS' USING ERRCODE = '55000';
   END IF;
 
-  IF p_storage_path !~ (
-       '^' || v_user_id::text || '/' || v_report_id::text || '/original[.](jpg|jpeg|png|webp)$'
+  v_original_extensions := CASE p_photo_public_mime_type
+    WHEN 'image/jpeg' THEN '(jpg|jpeg)'
+    WHEN 'image/png' THEN 'png'
+    WHEN 'image/webp' THEN 'webp'
+    ELSE NULL
+  END;
+  v_public_extension := CASE p_photo_public_mime_type
+    WHEN 'image/jpeg' THEN 'jpg'
+    WHEN 'image/png' THEN 'png'
+    WHEN 'image/webp' THEN 'webp'
+    ELSE NULL
+  END;
+
+  IF v_original_extensions IS NULL
+     OR p_storage_path !~ (
+       '^' || v_user_id::text || '/' || v_report_id::text || '/original[.]' || v_original_extensions || '$'
      )
-     OR p_photo_public_path !~ (
-       '^' || v_report_id::text || '[.](jpg|jpeg|png|webp)$'
-     ) THEN
+     OR p_photo_public_path <> (v_report_id::text || '.' || v_public_extension) THEN
     RAISE EXCEPTION 'REPORT_PHOTO_PATH_NOT_AUTHORIZED' USING ERRCODE = '42501';
   END IF;
 
   IF NOT EXISTS (
     SELECT 1 FROM storage.objects
     WHERE bucket_id = 'reports-originals' AND name = p_storage_path
+      AND metadata->>'mimetype' = p_photo_public_mime_type
+      AND CASE
+        WHEN metadata->>'size' ~ '^[0-9]+$'
+          THEN (metadata->>'size')::numeric BETWEEN 1 AND 4194304
+        ELSE false
+      END
   ) OR NOT EXISTS (
     SELECT 1 FROM storage.objects
     WHERE bucket_id = 'reports-public' AND name = p_photo_public_path
+      AND metadata->>'mimetype' = p_photo_public_mime_type
+      AND CASE
+        WHEN metadata->>'size' ~ '^[0-9]+$'
+          THEN (metadata->>'size')::numeric = p_photo_public_byte_size
+            AND (metadata->>'size')::numeric BETWEEN 1 AND 4194304
+        ELSE false
+      END
   ) THEN
-    RAISE EXCEPTION 'REPORT_PHOTO_OBJECT_NOT_FOUND' USING ERRCODE = 'P0002';
+    RAISE EXCEPTION 'REPORT_PHOTO_OBJECT_MISSING_OR_METADATA_MISMATCH' USING ERRCODE = 'P0002';
   END IF;
 
   INSERT INTO public.reports (

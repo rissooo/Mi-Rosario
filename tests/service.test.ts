@@ -33,10 +33,15 @@ const publishFields: ReportFields = {
   reviewed: true,
 };
 
-function createPublishForm(report: unknown = publishFields): FormData {
+function createPublishForm(
+  report: unknown = publishFields,
+  imageBytes: Uint8Array = JPEG_WITH_EXIF,
+): FormData {
   const form = new FormData();
   form.set("report", typeof report === "string" ? report : JSON.stringify(report));
-  form.set("image", new File([JPEG_WITH_EXIF], "foto.jpg", {
+  const imageBuffer = new ArrayBuffer(imageBytes.byteLength);
+  new Uint8Array(imageBuffer).set(imageBytes);
+  form.set("image", new File([imageBuffer], "foto.jpg", {
     type: "image/jpeg",
   }));
   return form;
@@ -224,6 +229,9 @@ test("getReportDetailService devuelve siempre la dirección del reporte", async 
     assert.equal(response.result.data.photo.url, "https://public.example/10000000-0000-4000-8000-000000000001.jpg");
     assert.equal(response.result.data.photo.byteSize, 1912);
     assert.equal(Object.hasOwn(response.result.data.photo, "expiresAt"), false);
+    const validation = validateReport(response.result.data);
+    assert.equal(validation.valid, false);
+    assert.ok(validation.error?.fieldErrors?.["photo.expiresAt"]);
   }
 });
 
@@ -270,7 +278,25 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
     assert.equal(response.result.data.items[0].photo.url, "https://public.example/10000000-0000-4000-8000-000000000001.jpg");
     assert.equal(response.result.data.items[0].photo.byteSize, 1912);
     assert.equal(Object.hasOwn(response.result.data.items[0].photo, "expiresAt"), false);
+    const validation = validateReport(response.result.data.items[0]);
+    assert.equal(validation.valid, false);
+    assert.ok(validation.error?.fieldErrors?.["photo.expiresAt"]);
   }
+});
+
+test("publishReportService devuelve error 415 de validación ante JPEG truncado, no 500", async () => {
+  const mock = createPublishSupabase();
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(publishFields, new Uint8Array([0xff, 0xd8, 0xff])),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 415);
+  assert.equal(response.result.error?.code, "UNSUPPORTED_MEDIA_TYPE");
+  assert.deepEqual(mock.uploadedPaths, []);
+  assert.ok(mock.rpcCalls.some((call) => call.name === "fail_idempotency_key"));
 });
 
 test("publishReportService parsea report como JSON y publica con el report_id reservado por la RPC", async () => {

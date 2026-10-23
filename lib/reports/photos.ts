@@ -92,7 +92,6 @@ function sanitizeJpeg(bytes: Uint8Array): Uint8Array {
     if (markerCode === 0xd9) {
       chunks.push(bytes.slice(markerStart, offset));
       sawEnd = true;
-      if (offset !== bytes.length) throw invalidImage("El JPEG contiene datos posteriores al marcador final.");
       break;
     }
     if (markerCode === 0x00 || markerCode === 0xd8 || (markerCode >= 0xd0 && markerCode <= 0xd7)) {
@@ -107,7 +106,8 @@ function sanitizeJpeg(bytes: Uint8Array): Uint8Array {
 
     const segmentEnd = offset + segmentLength;
     const isAppSegment = markerCode >= 0xe0 && markerCode <= 0xef;
-    if (!isAppSegment) chunks.push(bytes.slice(markerStart, segmentEnd));
+    const isCommentSegment = markerCode === 0xfe;
+    if (!isAppSegment && !isCommentSegment) chunks.push(bytes.slice(markerStart, segmentEnd));
     if (markerCode === 0xda) {
       sawScan = true;
       inScan = true;

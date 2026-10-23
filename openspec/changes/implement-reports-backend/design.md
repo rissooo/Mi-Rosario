@@ -27,8 +27,9 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 - Para reintentar sobre las mismas rutas con `upsert`, Storage también requiere permisos `SELECT` y `UPDATE`; quedan limitados por el mismo helper al claim propio `in_progress`.
 - `reports-public` es público, tiene límites de tamaño y MIME y recibe la copia sin metadatos con ruta `{report_id}.{ext}`, sin identificador de usuario. La política de inserción exige una clave propia en estado `in_progress`. La URL de lectura se arma con `getPublicUrl`; no se generan URLs firmadas para visitantes anónimos.
 - **D2 — pendiente de confirmar con Fran:** `Photo.url` apunta a la copia pública. `mimeType` y `byteSize` describen esa copia, se almacenan en columnas propias y se proyectan en la vista pública. No se inventa un vencimiento para una URL pública que no vence.
-- El saneamiento se hace en TypeScript puro, sin decodificar la imagen: quitar segmentos APP en JPEG, chunks `eXIf` y de texto en PNG y chunk EXIF en WebP. Si la estructura no se puede analizar con seguridad, se rechaza como error de validación. Se valida el contenido y MIME contra `IMAGE_MIME_TYPES`.
-- **Bloqueo de contrato:** `Photo.expiresAt` es obligatorio y debe ser una fecha UTC en `lib/contracts/reports.ts` y `docs/contracts.md`, mientras que `getPublicUrl` no tiene vencimiento. Hasta que Fran acuerde una representación compartida para URLs sin vencimiento, el DTO público no puede declararse compatible; este cambio no inventa una fecha ni modifica los archivos compartidos.
+- El saneamiento se hace en TypeScript puro, sin decodificar la imagen: quita segmentos APP0–APP15 y comentarios COM en JPEG (incluye EXIF, XMP e IPTC), chunks `eXIf` y de texto en PNG y chunks EXIF/XMP en WebP. En JPEG se descartan los bytes posteriores a EOI; en WebP se recalcula el tamaño RIFF. Si la estructura no se puede analizar con seguridad, se rechaza como error de validación. Se valida el contenido y MIME contra `IMAGE_MIME_TYPES`.
+- El saneamiento elimina la orientación EXIF pero no rota ni vuelve a codificar los píxeles. Una foto tomada en orientación vertical podría verse girada en la copia pública; queda pendiente acordar con Fran cómo resolverlo sin agregar dependencias.
+- **Bloqueo de contrato:** `Photo.expiresAt` es obligatorio y debe ser una fecha UTC en `lib/contracts/reports.ts` y `docs/contracts.md`, mientras que `getPublicUrl` no tiene vencimiento. Lista y detalle hoy omiten ese campo; los tests verifican que `validateReport` rechaza ambas respuestas. La propuesta abierta es aceptar `expiresAt: null` en un PR separado creado desde `main`, con revisión de Agus, Valen y Fran. Este cambio no inventa una fecha, no modifica contratos compartidos y no presenta el DTO como válido.
 - La elección de bucket público para la copia saneada es provisoria y debe confirmarse con Fran. La original nunca se hace pública. La política/retención de originales sigue siendo provisoria según el contrato.
 - No se implementa limpieza SQL de huérfanas. Borrar objetos exige Storage API con credencial de servidor; queda pendiente definir una limpieza segura que no agregue `service_role` al flujo normal.
 
@@ -115,11 +116,13 @@ Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` e
 ### Fran (también llamado Francisco) — interfaz y mapas
 
 - Confirmar que `reports-public` con copias saneadas y URL pública satisface el consumo de lista/detalle y el tratamiento de caché.
-- Acordar cómo representa el contrato `Photo.expiresAt` una URL pública sin vencimiento (`null` o quitar el campo). Hasta esa decisión, el DTO de lista/detalle no se marca como terminado.
+- Resolver si se acepta `Photo.expiresAt: null` para URLs públicas sin vencimiento mediante un PR separado desde `main`; revisión requerida de Agus, Valen y Fran. Hasta que se mergee, lista y detalle siguen incumpliendo el contrato y no se marcan como terminados.
+- Revisar la orientación de fotos JPEG: hoy se elimina EXIF sin rotar los píxeles y no se añade tratamiento de orientación.
 - Confirmar el límite de tamaño del multipart desde cliente considerando el límite del hosting, y si el cliente comprimirá antes de enviar.
 - Revisar e integrar PR #3 antes que el backend; luego cambiar solamente el adaptador de dirección.
 - Definir con qué mecanismo autorizado se limpiarán huérfanas mediante Storage API; no se implementa en SQL.
 - Confirmar la política provisoria de retención de originales y copias.
+- Definir la acción de moderación para copias públicas de reportes ocultos o rechazados; la URL sigue accesible mientras el objeto exista.
 
 ### Valen — visión
 
@@ -132,3 +135,9 @@ Antes de iniciar, confirmar en el panel que el proyecto `rsvtchefnydihokivaqg` e
 - **Fran / configuración Supabase:** decidir si `supabase/config.toml`, generado por `npx supabase init`, se commitea en esta rama o se mantiene local. `db push` requiere que exista, pero no presupone que se versiona.
 - **Valen / visión:** confirmar el límite de datos en memoria, sin pedir cambios en `lib/vision/**` dentro de este cambio.
 - **Agus / seguridad de fotos públicas:** las políticas pueden vincular una carga a un claim propio `in_progress`, pero Postgres/Storage no pueden comprobar que el contenido público perdió sus metadatos. Como el RPC y Storage usan el rol `authenticated`, un cliente puede invocarlos directamente y omitir el saneamiento del handler. Acordar la amenaza aceptable y una forma de impedirlo antes de habilitar el bucket público; no hay una comprobación de bytes en estas migraciones.
+
+## Límites conocidos de publicación y moderación
+
+- La clave publicable permite que un cliente autenticado invoque Storage y las RPC directamente; `SECURITY DEFINER` no convierte esas llamadas en operaciones exclusivas del servidor. Las policies de Storage atan cada ruta al `report_id` reservado en una clave `in_progress` del mismo usuario. `publish_report` comprueba `auth.uid()`, propiedad y estado de la clave, coincidencia del hash recibido, rutas original/pública coherentes con el usuario, ID y MIME, existencia de ambos objetos, MIME/tamaño declarados en los metadatos de Storage y que el tamaño de la copia coincida con el argumento. Los `CHECK` de `reports` limitan título (5–120), descripción (10–1000), categoría, gravedad, estados MVP, latitud/longitud, calle (2–80 sin espacios exteriores), altura (1–99999 o nula), MIME de la copia, tamaño (1–4 MiB), conteo no negativo y umbral positivo.
+- Esas comprobaciones no leen los bytes del objeto: un cliente puede subir contenido que no coincida con el MIME declarado o una copia que conserve metadatos y después llamar directamente a `publish_report`. El saneamiento del handler no es una garantía frente a un cliente hostil. La metadata de Storage tampoco prueba la firma ni el contenido real de la imagen.
+- Si una moderación futura oculta o rechaza un reporte, quitarlo de la vista no revoca su URL pública. La copia permanece accesible hasta que se elimine mediante Storage API; definir el borrado y la invalidación de caché queda abierto con Fran. El MVP no implementa estados de ocultamiento o rechazo.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type Ref } from "react";
+import { useLayoutEffect, useRef, useState, type Ref } from "react";
 import type { ImageSuggestion } from "@/lib/contracts/vision";
 import { INITIAL_CATEGORIES } from "@/lib/contracts/categories";
 import { SEVERITIES, SEVERITY_DETAILS, type Report } from "@/lib/contracts/reports";
@@ -79,16 +79,20 @@ export function ReportPanel({
   const [submission, setSubmission] = useState<Submission>({ state: "editing" });
   const [errors, setErrors] = useState<Errors>({});
   const publishing = useRef(false);
+  // Snapshot actualizado tras cada commit; un resultado asíncrono no debe usar datos anteriores.
+  const latestDraft = useRef(draft);
+  useLayoutEffect(() => { latestDraft.current = draft; }, [draft]);
 
   // Al corregir un campo se borra su error, para no dejar a la vista un mensaje que ya no aplica.
   const set = (changes: DraftChanges) => {
+    latestDraft.current = { ...latestDraft.current, ...changes };
     onChange(changes);
     const touched = new Set(Object.keys(changes).map((key) => DRAFT_FIELD[key as keyof Draft]).filter(Boolean));
     if (touched.size) setErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !touched.has(field as FormField))));
   };
 
   const applyVisionSuggestion = (suggestion: ImageSuggestion, photo: File) => {
-    const current = draft;
+    const current = latestDraft.current;
     if (current.photo !== photo || publishing.current) return;
     const changes = changesFromVisionSuggestion(current, suggestion);
     if (Object.keys(changes).length > 0) set(changes);

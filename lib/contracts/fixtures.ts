@@ -30,7 +30,8 @@ export const REPORT_FIXTURES: readonly Report[] = REPORT_FIELDS_FIXTURES.map((fi
     photo: {
       id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
       url: `https://example.invalid/synthetic-photo-${index + 1}.jpg`,
-      expiresAt: "2026-10-22T12:05:00.000Z",
+      // Como el backend real: URL pública de la versión para ver, sin vencimiento.
+      expiresAt: null,
       mimeType: "image/jpeg",
       byteSize: 1024,
     },
@@ -83,6 +84,7 @@ export const PUBLICATION_CASES: readonly ContractCase<Report>[] = independent<Co
   { name: "completed replay, same report ID", status: 200, response: { data: REPORT_FIXTURES[0] } },
   { name: "key reused with changed payload", status: 409, response: { error: { code: "IDEMPOTENCY_CONFLICT", message: "La clave ya corresponde a otros datos." } } },
   { name: "operation in progress; same-key retry", status: 409, response: { error: { code: "PUBLICATION_IN_PROGRESS", message: "La publicación sigue en curso. Reintentá con la misma clave." } } },
+  { name: "account quota reached; retry later", status: 429, response: { error: { code: "RATE_LIMITED", message: "Alcanzaste el máximo de reportes para las últimas 24 horas. Conservá el borrador y reintentá más tarde." } } },
   { name: "temporary storage failure", status: 503, response: { error: { code: "STORAGE_UNAVAILABLE", message: "No se pudo guardar la fotografía. Conservá el borrador y reintentá." } } },
 ]);
 export const CONFIRMATION_CASES: readonly ContractCase<MyConfirmation>[] = independent<ContractCase<MyConfirmation>>([

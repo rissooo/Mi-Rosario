@@ -188,6 +188,25 @@ test("los DTO públicos rechazan campos privados y datos institucionales en el M
   assert.deepEqual(REPORT_STAGES, ["pending", "citizen-verification", "municipal-verification", "resolved"]);
 });
 
+test("el vencimiento de la foto es null (no vence) o una fecha UTC, pero la clave es obligatoria", () => {
+  assert.equal(report.photo.expiresAt, null);
+  for (const expiresAt of [null, "2026-10-22T12:05:00.000Z"]) {
+    assert.equal(validatePhoto({ ...report.photo, expiresAt }).valid, true, String(expiresAt));
+    assert.equal(validateReport({ ...report, photo: { ...report.photo, expiresAt } }).valid, true, String(expiresAt));
+  }
+  const { expiresAt: _expiresAt, ...withoutExpiry } = report.photo;
+  void _expiresAt;
+  const invalid: Record<string, unknown>[] = [withoutExpiry, ...["", "2026-02-30T00:00:00.000Z", 1767225600000, undefined].map((expiresAt) => ({ ...report.photo, expiresAt }))];
+  for (const candidate of invalid) {
+    const parsed = validatePhoto(candidate);
+    assert.equal(parsed.valid, false, String(candidate.expiresAt));
+    if (!parsed.valid) assert.ok(parsed.error.fieldErrors?.expiresAt);
+    const nested = validateReport({ ...report, photo: candidate });
+    assert.equal(nested.valid, false);
+    if (!nested.valid) assert.ok(nested.error.fieldErrors?.["photo.expiresAt"]);
+  }
+});
+
 test("se revisa cada clave obligatoria del reporte", () => {
   for (const key of Object.keys(report)) {
     const missing: Record<string, unknown> = { ...report }; delete missing[key];
@@ -213,6 +232,18 @@ test("los casos de publicación documentados tienen sobres y códigos válidos; 
     if (item.response.error) assert.equal(ERROR_STATUS[item.response.error.code], item.status);
   }
   assert.equal(PUBLICATION_CASES[0].response.data?.id, PUBLICATION_CASES[1].response.data?.id);
+});
+
+test("la cuota por cuenta usa 429 RATE_LIMITED, distinto de la misma publicación en curso", () => {
+  assert.equal(ERROR_STATUS.RATE_LIMITED, 429);
+  assert.equal(validateApiError({ code: "RATE_LIMITED", message: "Alcanzaste el máximo de reportes." }).valid, true);
+  const errorOf = (code: string) => PUBLICATION_CASES.find((item) => item.response.error?.code === code);
+  const quota = errorOf("RATE_LIMITED");
+  const inProgress = errorOf("PUBLICATION_IN_PROGRESS");
+  assert.ok(quota?.response.error && inProgress?.response.error);
+  assert.equal(quota.status, 429);
+  assert.equal(inProgress.status, 409);
+  assert.notEqual(quota.response.error.message, inProgress.response.error.message);
 });
 
 test("los casos de confirmación documentados tienen formas válidas, no son evidencia de concurrencia en la base de datos", () => {

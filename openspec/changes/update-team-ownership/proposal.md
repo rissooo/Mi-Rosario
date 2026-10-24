@@ -9,7 +9,7 @@ Fran, Agus y Valen trabajan juntos en la misma compu y ahora son responsables de
 - **`AGENTS.md`**, bloque `mi-rosario-team-rules`:
   - Se reemplaza la lista de responsables por módulo por un equipo de tres personas, responsables en conjunto de toda la app.
   - Las reglas de arquitectura que no dependen de una persona se conservan y se reescriben por capa. Por ejemplo: el código del navegador no importa clientes del servidor ni de proveedores, ni escribe directamente en las tablas; la IA solo sugiere.
-  - La regla de revisión pasa a ser esta: un PR que toca contratos (`lib/contracts/`), migraciones, RLS o políticas de Storage, el proxy o las instrucciones compartidas necesita la revisión de al menos otra persona del equipo.
+  - La regla de revisión pasa a ser esta: Claude revisa el diff completo de cada PR (incluidos contratos, migraciones, RLS o políticas de Storage, el proxy y las instrucciones compartidas) y Fran autoriza el merge. No hace falta esperar a otra persona del equipo.
   - El bloque generado de Next.js no se toca.
 - **`CLAUDE.md` y `GEMINI.md`**: se mantiene qué asistente usa cada persona (Fran con Claude, Agus con Gemini/Antigravity y, según `docs/development.md`, Valen con Codex). Se quita la responsabilidad por módulo y la frase que exige la revisión de proveedores y consumidores.
 - **`docs/contracts.md`**:

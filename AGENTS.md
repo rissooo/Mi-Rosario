@@ -33,9 +33,11 @@ si hay instrucciones en conflicto, informalo en lugar de reemplazarlas.
   clientes de proveedores, repositorios ni del servidor, ni escribe directamente en
   las tablas del producto.
 - Los DTO compartidos, los validadores puros y los fixtures sintéticos están en
-  `lib/contracts/`. Un PR que toca contratos, migraciones, RLS o políticas de
-  Storage, `proxy.ts` o las instrucciones compartidas (`AGENTS.md`, `CLAUDE.md`,
-  `GEMINI.md`) necesita la revisión de al menos otra persona del equipo.
+  `lib/contracts/`. Revisión de PRs: Claude revisa el diff completo, informa los
+  hallazgos y pide la autorización de Fran para mergear; no hace falta esperar la
+  revisión de otra persona del equipo, aunque cualquiera puede revisar además. Esto
+  vale también para contratos, migraciones, RLS o políticas de Storage, `proxy.ts`
+  y las instrucciones compartidas (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`).
 - Las categorías activas iniciales son exactamente `pothole`, `missing-light`,
   `damaged-sidewalk` y `faulty-traffic-light`. Conservá las etiquetas en español y
   los IDs existentes. Usá "falta de luz"; nunca infieras inseguridad. Una foto fija
@@ -56,8 +58,8 @@ si hay instrucciones en conflicto, informalo en lugar de reemplazarlas.
   incidentes ni el alcance institucional sin un change revisado.
 - Esta base implementa contratos e instrucciones, no endpoints, llamadas a Gemini,
   migraciones, pantallas ni mapas. Eso requiere changes funcionales de OpenSpec
-  aparte. Marcá una tarea como completa solo con la evidencia que pide, incluidas
-  las revisiones de los compañeros.
+  aparte. Marcá una tarea como completa solo con la evidencia que pide, incluida
+  la revisión que corresponda.
 - Usá `openspec.cmd` en PowerShell; si no lo encontrás, ubicalo con
   `npm.cmd config get prefix`. Primero proponer y revisar, después aplicar; nunca
   supongas que hay autorización para commit, push, merge o archive.

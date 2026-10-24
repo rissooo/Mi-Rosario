@@ -37,7 +37,7 @@ La regla existente que ignora `.env*` también ignora `.env.example`. Mantené l
 
 ## Revisiones pendientes
 
-- Al menos otra persona del equipo revisa los DTO comunes, los validadores puros y los fixtures sintéticos antes de integrar áreas.
+- Claude revisa los DTO comunes, los validadores puros y los fixtures sintéticos antes de integrar áreas, y Fran autoriza el merge.
 - Cada persona demuestra, en la sesión de su propio asistente (Claude, Gemini/Antigravity o Codex), que lee explícitamente las instrucciones compartidas.
 - Revisar la hoja de contratos de `contracts.md` en una pantalla de celular. Es una revisión de documentos y fixtures, no la aceptación de una pantalla del producto.
 - Verificar los flujos exactos de incorporación en esos entornos. Esta base no envió mensajes, invitaciones ni hizo cambios en cuentas.

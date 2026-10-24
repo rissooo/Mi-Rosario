@@ -20,7 +20,7 @@ El equipo (Fran, Agus y Valen) SHALL ser responsable en conjunto de toda la app,
 - **THEN** el área de IA de visión no tiene ninguna responsabilidad de modificar reportes ni Storage
 
 ### Requirement: Evolución revisable del contrato
-Al menos otra persona del equipo, distinta de quien hace el cambio, SHALL revisar los cambios compartidos de campos, categorías, gravedad, políticas, errores y reintentos. Las propuestas pendientes SHALL distinguirse claramente de la configuración aprobada.
+Claude SHALL revisar el diff completo de los cambios compartidos de campos, categorías, gravedad, políticas, errores y reintentos. Las propuestas pendientes SHALL distinguirse claramente de la configuración aprobada. Fran SHALL autorizar el merge.
 
 #### Scenario: Registro del umbral y la gravedad aprobados
 - **WHEN** la base registra las decisiones de producto aprobadas
@@ -46,7 +46,7 @@ El equipo SHALL usar chore/team-architecture para la base, feature/gemini-vision
 
 #### Scenario: Cambio en un límite
 - **WHEN** un PR cambia una API compartida o el catálogo de categorías
-- **THEN** al menos otra persona del equipo revisa el cambio de contrato, los fixtures y el plan de compatibilidad antes de integrarlo
+- **THEN** Claude revisa el cambio de contrato, los fixtures y el plan de compatibilidad, y Fran autoriza el merge antes de integrarlo
 - **THEN** se acuerda un solo responsable de edición para los archivos compartidos de ese PR
 
 ### Requirement: Instrucciones de asistentes que solo agregan

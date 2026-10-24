@@ -70,7 +70,7 @@ export async function confirmReport(
       result: {
         error: {
           code: "INTERNAL_ERROR",
-          message: error.message,
+          message: "No se pudo confirmar el reporte.",
         },
       },
     };
@@ -116,7 +116,7 @@ export async function confirmReport(
           result: {
             error: {
               code: "INTERNAL_ERROR",
-              message: response.message || "No se pudo confirmar el reporte.",
+              message: "No se pudo confirmar el reporte.",
             },
           },
         };
@@ -195,7 +195,7 @@ export async function getMyConfirmation(
       result: {
         error: {
           code: "INTERNAL_ERROR",
-          message: error.message,
+          message: "No se pudo consultar la confirmación del reporte.",
         },
       },
     };

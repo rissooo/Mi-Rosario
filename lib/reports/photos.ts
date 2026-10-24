@@ -411,9 +411,9 @@ export async function compensateRemovePhotos(
   for (const [bucket, paths] of byBucket) {
     try {
       const { error } = await supabase.storage.from(bucket).remove(paths);
-      if (error) console.error(`No se pudo compensar la carga en ${bucket}:`, error.message);
-    } catch (error) {
-      console.error(`No se pudo compensar la carga en ${bucket}:`, error);
+      if (error) console.error("No se pudo completar la compensación de fotos.");
+    } catch {
+      console.error("No se pudo completar la compensación de fotos.");
     }
   }
 }

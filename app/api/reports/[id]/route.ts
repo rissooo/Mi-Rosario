@@ -15,13 +15,12 @@ export async function GET(
     const { httpStatus, result } = await getReportDetailService(supabase, id);
 
     return NextResponse.json(result, { status: httpStatus });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Error interno del servidor";
+  } catch {
     return NextResponse.json(
       {
         error: {
           code: "INTERNAL_ERROR",
-          message,
+          message: "No se pudo consultar el reporte.",
         },
       },
       { status: 500 },

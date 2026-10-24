@@ -1,11 +1,19 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { parseReportsListRequest } from "@/lib/reports/list-query";
+import { isMultipartContentLengthTooLarge } from "@/lib/reports/request-size";
 import { listReportsService, publishReportService } from "@/lib/reports/service";
 import { createClient } from "@/utils/supabase/server";
 
 export async function POST(request: NextRequest) {
   try {
+    if (isMultipartContentLengthTooLarge(request.headers.get("content-length"))) {
+      return NextResponse.json(
+        { error: { code: "PAYLOAD_TOO_LARGE", message: "La carga supera el tamaño máximo permitido." } },
+        { status: 413 },
+      );
+    }
+
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);
 
@@ -41,13 +49,12 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(result, { status: httpStatus, headers });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Error interno del servidor";
+  } catch {
     return NextResponse.json(
       {
         error: {
           code: "INTERNAL_ERROR",
-          message,
+          message: "No se pudo procesar la publicación.",
         },
       },
       { status: 500 },
@@ -67,13 +74,12 @@ export async function GET(request: NextRequest) {
     const { httpStatus, result } = await listReportsService(supabase, parsedQuery.query);
 
     return NextResponse.json(result, { status: httpStatus });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Error interno del servidor";
+  } catch {
     return NextResponse.json(
       {
         error: {
           code: "INTERNAL_ERROR",
-          message,
+          message: "No se pudo consultar la lista de reportes.",
         },
       },
       { status: 500 },

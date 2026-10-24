@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ReportFields } from "../lib/contracts/reports";
+import { MAX_IMAGE_BYTES, type ReportFields } from "../lib/contracts/reports";
 import { validateReport } from "../lib/contracts/validation";
 import {
   decodeCursor,
@@ -51,7 +51,9 @@ function createPublishSupabase(options: {
   claimResult?: unknown;
   publishError?: { code?: string; message: string };
   publishThrow?: unknown;
+  publishResult?: unknown;
   detailError?: boolean;
+  reportRowOverrides?: Record<string, unknown>;
 } = {}) {
   const rpcCalls: Array<{ name: string; params: unknown }> = [];
   const uploadedPaths: string[] = [];
@@ -76,6 +78,7 @@ function createPublishSupabase(options: {
     photo_public_byte_size: 14,
     confirmation_count: 0,
     confirmation_threshold: 3,
+    ...options.reportRowOverrides,
   };
 
   const supabase = {
@@ -91,6 +94,7 @@ function createPublishSupabase(options: {
       if (name === "publish_report") {
         if (options.publishThrow) throw options.publishThrow;
         if (options.publishError) return { data: null, error: options.publishError };
+        if (options.publishResult !== undefined) return { data: options.publishResult, error: null };
         return { data: { success: true, action: "CREATED", reportId: reservedReportId }, error: null };
       }
       if (name === "fail_idempotency_key") return { data: { action: "FAILED", reportId: reservedReportId }, error: null };
@@ -467,4 +471,122 @@ test("getReportDetailService returns 404 for missing report", async () => {
   if (res.result.error) {
     assert.equal(res.result.error.code, "REPORT_NOT_FOUND");
   }
+});
+
+test("el límite del tamaño real devuelve 413 antes de reclamar o leer la imagen", async () => {
+  const mock = createPublishSupabase();
+  const formData = createPublishForm(publishFields, new Uint8Array(MAX_IMAGE_BYTES + 1));
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData,
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 413);
+  assert.equal(response.result.error?.code, "PAYLOAD_TOO_LARGE");
+  assert.deepEqual(mock.rpcCalls, []);
+  assert.deepEqual(mock.uploadedPaths, []);
+});
+
+test("el claim de cuota devuelve el error del contrato y el Retry-After", async () => {
+  const mock = createPublishSupabase({
+    claimResult: {
+      action: "LIMIT_REACHED",
+      status: "in_progress",
+      code: "PUBLICATION_IN_PROGRESS",
+      quota: "active_claims",
+      retryAfter: 37,
+    },
+  });
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 409);
+  assert.equal(response.result.error?.code, "PUBLICATION_IN_PROGRESS");
+  assert.equal(response.retryAfter, 37);
+  assert.match(response.result.error?.message ?? "", /publicaciones en curso/);
+  assert.deepEqual(mock.uploadedPaths, []);
+  assert.deepEqual(mock.rpcCalls.map((call) => call.name), ["claim_idempotency_key"]);
+});
+
+test("el límite diario de publish_report compensa antes de marcar la clave fallida", async () => {
+  const mock = createPublishSupabase({
+    publishResult: {
+      success: false,
+      code: "PUBLICATION_IN_PROGRESS",
+      quota: "published_24h",
+      retryAfter: 7200,
+    },
+  });
+  const response = await publishReportService({
+    supabase: mock.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.httpStatus, 409);
+  assert.equal(response.result.error?.code, "PUBLICATION_IN_PROGRESS");
+  assert.equal(response.retryAfter, 7200);
+  assert.deepEqual(mock.removedPaths, [`user-1/${reservedReportId}/original.jpg`, `${reservedReportId}.jpg`]);
+  assert.deepEqual(mock.events.slice(-3), [
+    "remove:reports-originals",
+    "remove:reports-public",
+    "rpc:fail_idempotency_key",
+  ]);
+});
+
+test("los GET rechazan DTO inválidos y no exponen mensajes de base de datos", async () => {
+  const invalidDetail = createPublishSupabase({ reportRowOverrides: { title: "x" } });
+  const detail = await getReportDetailService(invalidDetail.supabase, reservedReportId);
+  assert.equal(detail.httpStatus, 500);
+  assert.equal(detail.result.error?.message, "No se pudo preparar el reporte público.");
+
+  const row = {
+    id: reservedReportId,
+    title: "x",
+    description: publishFields.description,
+    category_id: publishFields.categoryId,
+    severity: publishFields.severity,
+    status: "pending",
+    latitude: publishFields.location.latitude,
+    longitude: publishFields.location.longitude,
+    street: publishFields.location.address.street,
+    street_number: publishFields.location.address.number,
+    created_at: "2026-10-22T10:00:00.000Z",
+    updated_at: "2026-10-22T10:00:00.000Z",
+    photo_public_path: `${reservedReportId}.jpg`,
+    photo_public_mime_type: "image/jpeg",
+    photo_public_byte_size: 14,
+    confirmation_count: 0,
+    confirmation_threshold: 3,
+  };
+  let query: Record<string, (...args: unknown[]) => unknown>;
+  query = {
+    select: () => query,
+    order: () => query,
+    limit: async () => ({ data: [row], error: null }),
+  };
+  const invalidListSupabase = {
+    from: () => query,
+    storage: { from: () => ({ getPublicUrl: (path: string) => ({ data: { publicUrl: path } }) }) },
+  } as unknown as SupabaseClient;
+  const invalidList = await listReportsService(invalidListSupabase, {});
+  assert.equal(invalidList.httpStatus, 500);
+  assert.equal(invalidList.result.error?.message, "No se pudo preparar la lista pública de reportes.");
+
+  query = {
+    select: () => query,
+    order: () => query,
+    limit: async () => ({ data: null, error: { message: "storage_path user_id private SQL function" } }),
+  };
+  const failedList = await listReportsService({ from: () => query } as unknown as SupabaseClient, {});
+  assert.equal(failedList.httpStatus, 500);
+  assert.equal(failedList.result.error?.message, "No se pudo consultar la lista de reportes.");
+  assert.doesNotMatch(failedList.result.error?.message ?? "", /storage_path|user_id|SQL function/);
 });

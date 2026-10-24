@@ -398,3 +398,18 @@ test("las cuotas configurables se serializan por usuario en claim y publicación
     assert.match(helperSql, /k\.locked_until > now\(\)/i, `${helper} debe exigir que el claim siga vigente`);
   }
 });
+
+test("el POST limita Content-Length antes de leer el multipart y oculta errores internos", () => {
+  const routeFiles = [
+    "app/api/reports/route.ts",
+    "app/api/reports/[id]/route.ts",
+    "app/api/reports/[id]/confirmations/route.ts",
+    "app/api/reports/[id]/confirmations/me/route.ts",
+  ];
+  const routes = routeFiles.map((file) => readFileSync(join(root, file), "utf8"));
+  const publishRoute = routes[0];
+
+  assert.ok(publishRoute.indexOf("isMultipartContentLengthTooLarge") < publishRoute.indexOf("request.formData()"));
+  assert.match(publishRoute, /status:\s*413/);
+  assert.doesNotMatch(routes.join("\n"), /message:\s*(?:err|error|response)\.message/);
+});

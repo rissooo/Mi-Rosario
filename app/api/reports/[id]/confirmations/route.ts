@@ -31,13 +31,12 @@ export async function POST(
     const { httpStatus, result } = await confirmReport(supabase, id);
 
     return NextResponse.json(result, { status: httpStatus });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Error interno del servidor";
+  } catch {
     return NextResponse.json(
       {
         error: {
           code: "INTERNAL_ERROR",
-          message,
+          message: "No se pudo registrar la confirmación.",
         },
       },
       { status: 500 },

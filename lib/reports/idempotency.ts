@@ -6,6 +6,13 @@ export type ClaimSlotResult =
   | { action: "CLAIMED"; status: "in_progress"; reportId: string }
   | { action: "COMPLETED"; status: "completed"; reportId: string }
   | { action: "IN_PROGRESS"; status: "in_progress"; code: "PUBLICATION_IN_PROGRESS"; retryAfter: number }
+  | {
+      action: "LIMIT_REACHED";
+      status: "in_progress";
+      code: "PUBLICATION_IN_PROGRESS";
+      quota: "active_claims" | "published_24h";
+      retryAfter: number;
+    }
   | { action: "CONFLICT"; status: string; code: "IDEMPOTENCY_CONFLICT"; message: string };
 
 type RpcErrorDetails = { code?: unknown; status?: unknown; statusCode?: unknown; message?: unknown };

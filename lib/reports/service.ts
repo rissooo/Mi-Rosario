@@ -3,6 +3,7 @@ import type { CategoryId } from "../contracts/categories";
 import { ERROR_STATUS, type ApiResult } from "../contracts/errors";
 import {
   type Location,
+  MAX_IMAGE_BYTES,
   type Photo,
   type Report,
   type ReportList,
@@ -15,6 +16,8 @@ import {
   parseReportJson,
   validatePublicationHeaders,
   validatePublishReportRequest,
+  validateReport,
+  validateReportList,
   validateReportListQuery,
 } from "../contracts/validation";
 import {
@@ -33,6 +36,7 @@ import {
 
 type CursorFilters = Pick<ReportListQuery, "categoryId" | "status" | "bbox">;
 type CursorPayload = { version: 1; createdAt: string; id: string; filters: CursorFilters };
+const TEMPORARY_PHOTO_EXPIRY_FOR_VALIDATION = "2099-01-01T00:00:00.000Z";
 
 export function encodeCursor(report: { id: string; createdAt: string }, filters: CursorFilters): string {
   const payload: CursorPayload = { version: 1, createdAt: report.createdAt, id: report.id, filters };
@@ -82,6 +86,27 @@ type DbReportRow = {
 type ReportDtoPendingPhotoExpiry = Omit<Report, "photo"> & {
   photo: Omit<Photo, "expiresAt">;
 };
+
+/** TEMPORAL: valida una copia mientras Photo.expiresAt siga siendo obligatorio en el contrato. */
+function validateReportTemporarilyWithoutPublicExpiry(report: ReportDtoPendingPhotoExpiry): boolean {
+  return validateReport({
+    ...report,
+    photo: { ...report.photo, expiresAt: TEMPORARY_PHOTO_EXPIRY_FOR_VALIDATION },
+  }).valid;
+}
+
+/** TEMPORAL: el vencimiento se agrega solo a copias usadas por el validador, nunca a la respuesta. */
+function validateReportListTemporarilyWithoutPublicExpiry(
+  list: Omit<ReportList, "items"> & { items: ReportDtoPendingPhotoExpiry[] },
+): boolean {
+  return validateReportList({
+    ...list,
+    items: list.items.map((report) => ({
+      ...report,
+      photo: { ...report.photo, expiresAt: TEMPORARY_PHOTO_EXPIRY_FOR_VALIDATION },
+    })),
+  }).valid;
+}
 
 export function mapRowToReport(
   row: DbReportRow,
@@ -156,6 +181,23 @@ function postCommitPublicationError(): PublishServiceResult {
   );
 }
 
+class ReportQuotaError extends Error {
+  constructor(readonly retryAfter: number) {
+    super("Se alcanzó la cuota de publicaciones.");
+    this.name = "ReportQuotaError";
+  }
+}
+
+function publicationQuotaError(retryAfter: number, quota?: "active_claims" | "published_24h"): PublishServiceResult {
+  const message = quota === "active_claims"
+    ? "Ya tenés el máximo de publicaciones en curso. Reintentá más tarde."
+    : "Alcanzaste el máximo de reportes para las últimas 24 horas.";
+  return {
+    ...publicationError("PUBLICATION_IN_PROGRESS", message),
+    retryAfter: Math.max(1, Math.floor(retryAfter)),
+  };
+}
+
 function failurePublicationError(error: unknown): PublishServiceResult {
   if (error instanceof ReportPhotoError && error.kind === "validation") {
     const code = error.apiCode ?? "UNSUPPORTED_MEDIA_TYPE";
@@ -208,6 +250,10 @@ export async function publishReportService({
     return publicationError(parsedReport.error.code, parsedReport.error.message, parsedReport.error.fieldErrors);
   }
 
+  if (typeof File !== "undefined" && imagePart instanceof File && imagePart.size > MAX_IMAGE_BYTES) {
+    return publicationError("PAYLOAD_TOO_LARGE", "La imagen supera el tamaño máximo permitido.");
+  }
+
   const parsedRequest = validatePublishReportRequest({ report: parsedReport.value, image: imagePart });
 
   if (!parsedRequest.valid) {
@@ -253,6 +299,10 @@ export async function publishReportService({
     };
   }
 
+  if (slot.action === "LIMIT_REACHED") {
+    return publicationQuotaError(slot.retryAfter, slot.quota);
+  }
+
   if (slot.action === "COMPLETED") {
     const existing = await getReportDetailService(supabase, slot.reportId);
     if (existing.httpStatus !== 200 || !existing.result.data) return postCommitPublicationError();
@@ -292,6 +342,15 @@ export async function publishReportService({
     });
 
     if (published && typeof published === "object" && "success" in published && published.success === false) {
+      if (
+        "code" in published && published.code === "PUBLICATION_IN_PROGRESS" &&
+        "quota" in published && published.quota === "published_24h"
+      ) {
+        const retryAfter = "retryAfter" in published && typeof published.retryAfter === "number"
+          ? published.retryAfter
+          : 60;
+        throw new ReportQuotaError(retryAfter);
+      }
       throw new ReportRpcError("publish_report", { code: "23505", message: "Conflicto de idempotencia." });
     }
 
@@ -313,7 +372,8 @@ export async function publishReportService({
   } catch (err: unknown) {
     if (committed) return postCommitPublicationError();
 
-    const definitive = (err instanceof ReportRpcError || err instanceof ReportPhotoError) && err.definitive;
+    const definitive = err instanceof ReportQuotaError ||
+      ((err instanceof ReportRpcError || err instanceof ReportPhotoError) && err.definitive);
     if (definitive) {
       const uploadedObjects = photoUpload?.uploadedObjects ??
         (err instanceof ReportPhotoError ? err.uploadedObjects : []);
@@ -324,6 +384,7 @@ export async function publishReportService({
         // El bloqueo vence por sí mismo si la RPC de recuperación tampoco está disponible.
       }
     }
+    if (err instanceof ReportQuotaError) return publicationQuotaError(err.retryAfter, "published_24h");
     return failurePublicationError(err);
   }
 }
@@ -355,6 +416,13 @@ export async function getReportDetailService(
 
   const photoUrl = getPublicPhotoUrl(supabase, row.photo_public_path);
   const reportDto = mapRowToReport(row, photoUrl);
+
+  if (!validateReportTemporarilyWithoutPublicExpiry(reportDto)) {
+    return {
+      httpStatus: 500,
+      result: { error: { code: "INTERNAL_ERROR", message: "No se pudo preparar el reporte público." } },
+    };
+  }
 
   return {
     httpStatus: 200,
@@ -421,7 +489,7 @@ export async function listReportsService(
       result: {
         error: {
           code: "INTERNAL_ERROR",
-          message: error?.message ?? "Error querying reports",
+          message: "No se pudo consultar la lista de reportes.",
         },
       },
     };
@@ -442,13 +510,20 @@ export async function listReportsService(
   };
 
   const nextCursor = hasMore && items.length > 0 ? encodeCursor(items[items.length - 1], filters) : null;
+  const list = { items, nextCursor };
+
+  if (!validateReportListTemporarilyWithoutPublicExpiry(list)) {
+    return {
+      httpStatus: 500,
+      result: { error: { code: "INTERNAL_ERROR", message: "No se pudo preparar la lista pública de reportes." } },
+    };
+  }
 
   return {
     httpStatus: 200,
     result: {
       data: {
-        items,
-        nextCursor,
+        ...list,
       },
     },
   };

@@ -110,6 +110,31 @@ test("confirmReport maps domain error codes to exact HTTP statuses", async () =>
   }
 });
 
+test("confirmReport no expone mensajes internos de SQL en el error público", async () => {
+  const mockSupabase = {
+    rpc: async () => ({ data: null, error: { message: "private_table user_id storage_path function secret_name" } }),
+  } as unknown as SupabaseClient;
+
+  const response = await confirmReport(mockSupabase, reportId);
+  assert.equal(response.httpStatus, 500);
+  assert.equal(response.result.error?.message, "No se pudo confirmar el reporte.");
+  assert.doesNotMatch(response.result.error?.message ?? "", /private_table|user_id|storage_path|secret_name/);
+});
+
+test("confirmReport no reenvía el mensaje de una respuesta RPC fallida", async () => {
+  const mockSupabase = {
+    rpc: async () => ({
+      data: { success: false, code: "UNEXPECTED", message: "private_table user_id storage_path" },
+      error: null,
+    }),
+  } as unknown as SupabaseClient;
+
+  const response = await confirmReport(mockSupabase, reportId);
+  assert.equal(response.httpStatus, 400);
+  assert.equal(response.result.error?.message, "No se pudo confirmar el reporte.");
+  assert.doesNotMatch(response.result.error?.message ?? "", /private_table|user_id|storage_path/);
+});
+
 test("getMyConfirmation usa la RPC y devuelve confirmación, conteo y umbral reales", async () => {
   const rpcCalls: Array<{ name: string; args: unknown }> = [];
   const mockSupabase = {

@@ -120,7 +120,7 @@ test("cuando OpenAI no está habilitado, solo se intenta Groq", async () => {
 
 test("Vercel Vision se niega salvo con flag, HTTPS exacto, usuario autorizado y clave", () => {
   const base = {
-    VERCEL: "1", VISION_DEPLOY_ENABLED: "1", GROQ_API_KEY: "fake-key",
+    VERCEL: "1", VERCEL_ENV: "preview", VISION_DEPLOY_ENABLED: "1", GROQ_API_KEY: "fake-key",
     VISION_DEPLOY_ORIGINS: "https://mi-rosario-prueba.vercel.app",
     VISION_DEPLOY_USER_IDS: "123e4567-e89b-42d3-a456-426614174000",
   };
@@ -129,7 +129,7 @@ test("Vercel Vision se niega salvo con flag, HTTPS exacto, usuario autorizado y 
   assert.deepEqual(valid.allowedOrigins, ["https://mi-rosario-prueba.vercel.app"]);
   assert.equal(valid.allowedUserIds.has("123e4567-e89b-42d3-a456-426614174000"), true);
   for (const extra of [
-    { VERCEL: "" }, { VISION_DEPLOY_ENABLED: "0" },
+    { VERCEL: "" }, { VERCEL_ENV: "production" }, { VISION_DEPLOY_ENABLED: "0" },
     { GROQ_API_KEY: "" },
     { VISION_DEPLOY_ORIGINS: "https://*.vercel.app" },
     { VISION_DEPLOY_ORIGINS: "http://mi-rosario-prueba.vercel.app" },

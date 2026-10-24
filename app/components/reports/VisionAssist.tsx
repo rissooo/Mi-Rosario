@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ImageSuggestion } from "@/lib/contracts/vision";
 
 type Props = {
@@ -15,6 +15,12 @@ export function VisionAssist({ photo, disabled, onSuggestion }: Props) {
     photo: null, busy: false, message: null, warnings: [],
   });
   const active = useRef<AbortController | null>(null);
+  const latestSuggestion = useRef(onSuggestion);
+  const latestPhoto = useRef(photo);
+  useLayoutEffect(() => {
+    latestSuggestion.current = onSuggestion;
+    latestPhoto.current = photo;
+  }, [onSuggestion, photo]);
   // Los resultados pertenecen a una foto concreta; otra foto no hereda mensajes ni carga.
   const current = state.photo === photo
     ? state
@@ -46,8 +52,8 @@ export function VisionAssist({ photo, disabled, onSuggestion }: Props) {
       const body = result as { data?: { suggestion?: ImageSuggestion } };
       const suggestion = body?.data?.suggestion;
       if (!suggestion || !Array.isArray(suggestion.warnings)) throw new Error("Respuesta inválida.");
-      if (controller.signal.aborted || active.current !== controller) return;
-      onSuggestion(suggestion, chosen);
+      if (controller.signal.aborted || active.current !== controller || latestPhoto.current !== chosen) return;
+      latestSuggestion.current(suggestion, chosen);
       setState({
         photo: chosen, busy: false,
         message: "Sugerencias aplicadas a los campos vacíos. Revisá y corregí los datos antes de publicar.",

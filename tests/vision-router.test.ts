@@ -107,8 +107,12 @@ test("el registro que falla no interfiere con el análisis", async () => {
   assert.deepEqual(await router.analyze(image, new AbortController().signal, 150), suggestion);
 });
 
-test("la ruta activa solo admite Groq y OpenAI, sin Gemini", () => {
-  // La compatibilidad de nombres del tipo no modifica la selección de proveedores
-  // que se comprueba con pruebas de integración en local.ts.
-  assert.ok(true);
+test("cuando OpenAI no está habilitado, solo se intenta Groq", async () => {
+  let called = 0;
+  const router = createFallbackVisionProvider([
+    { name: "groq", provider: { async analyze() { called++; throw new VisionError("ANALYSIS_UNAVAILABLE"); } }, limitMs: 100 },
+  ]);
+  await assert.rejects(router.analyze(image, new AbortController().signal, 150),
+    (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
+  assert.equal(called, 1);
 });

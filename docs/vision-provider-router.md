@@ -1,31 +1,36 @@
-# Router experimental local de visión — Mi Rosario
+# Vision de Mi Rosario — router experimental local
 
-Esta rama implementa un enrutador secuencial de proveedores **solo para desarrollo local**. El endpoint conserva autenticación, origen local, admisión, normalización de imágenes, contratos y límite global de 20 segundos. No habilita visión en Vercel ni despliega claves.
+## Orden de proveedores
 
-## Orden y tiempos
+1. **Groq / Qwen**: principal, hasta 5 segundos.
+2. **OpenAI / GPT-6 Luna**: respaldo opcional, hasta 12 segundos y **apagado por defecto**.
+3. **Formulario manual**: si ambas APIs fallan, no se inventan datos; la interfaz de reportes final permite completarlo a mano.
 
-1. Groq (Qwen, 5 s máximos).
-2. Gemini (9 s máximos; solo si `GEMINI_API_KEY` está configurada).
-3. OpenAI (4 s máximos; solo si `VISION_LOCAL_OPENAI_REAL=1` y hay clave).
+Se respeta el deadline global de 20 segundos incluyendo sesión, recepción, normalización y análisis. Las APIs se invocan secuencialmente, no en paralelo. Cada resultado pasa por la validación estricta del contrato existente.
 
-Se valida el JSON tras cada intento; JSON incorrecto, errores o timeout hacen probar la siguiente API. Al agotar las opciones, el endpoint devuelve error, y la persona completa manualmente el formulario. No se emiten varias solicitudes a la vez. No hay retries automáticos ni persistencia de fotos o respuestas de IA.
+**Gemini no forma parte del router ni recibe solicitudes en este modo**, aunque `GEMINI_API_KEY` permanezca en `.env.local`. El código Gemini legacy se mantiene sin usar, para no borrar trabajo histórico ni modificar el endpoint antiguo sin revisión del equipo.
 
-## Configurar .env.local
-
-Mantener tus API keys existentes. **Nunca las pegues en GitHub**.
+## Configuración local
 
 ```dotenv
+GROQ_API_KEY=tu_clave_que_ya_tenes
+OPENAI_API_KEY=tu_clave_que_ya_tenes
+
+VISION_LOCAL_ROUTER_REAL=1
 VISION_LOCAL_GEMINI_REAL=0
 VISION_LOCAL_SIMULATION=0
-VISION_LOCAL_ROUTER_REAL=1
 VISION_LOCAL_OPENAI_REAL=0
+VISION_LOCAL_TEST_GROQ_FAILURE=0
+VISION_LOCAL_ROUTER_TRACE=1
 ```
 
-`GROQ_API_KEY` es obligatoria para el router; `GEMINI_API_KEY` es opcional. Aunque `OPENAI_API_KEY` exista, OpenAI no recibe solicitudes hasta cambiar el flag explícitamente a `1`. Hacelo solo después de activar facturación y revisar costos. `VISION_BENCHMARK_OPENAI` es **otra configuración**, exclusiva del benchmark, y no habilita el router. Para volver al modo antiguo, configurar `VISION_LOCAL_ROUTER_REAL=0` y `VISION_LOCAL_GEMINI_REAL=1`.
+No dupliques variables ni subas `.env.local` a GitHub. La clave de OpenAI puede estar presente sin que se invoque la API: solo se usa si `VISION_LOCAL_OPENAI_REAL=1` y Groq falla.
 
-Si todas las APIs fallan, el endpoint responde `ANALYSIS_UNAVAILABLE` o `ANALYSIS_TIMEOUT`; el formulario manual debe seguir disponible. El endpoint no publica reportes automáticamente.
+**Cuando el equipo active la facturación de OpenAI y compruebe la cuota disponible**, cambiar `VISION_LOCAL_OPENAI_REAL=1` y reiniciar `npm run dev`. El modelo está configurado como `gpt-6-luna`; puede requerir saldo y habilitación de acceso según la cuenta. Antes de esa decisión, debe permanecer en `0`.
 
-## Verificación
+`VISION_BENCHMARK_OPENAI` es la configuración de **otro programa**, el benchmark del PR #10; no habilita OpenAI en este router.
+
+## Probar
 
 ```bash
 node scripts/check-vision-router.mjs
@@ -33,52 +38,12 @@ npx tsc --noEmit
 npm run dev
 ```
 
-Con sesión iniciada y origen `http://localhost:3000`, probá la carga de una foto a través del formulario. Con Groq disponible debe devolver el mismo contrato de sugerencias de antes. Probá luego deshabilitar temporalmente la clave de Groq para verificar el comportamiento de error (no subir variables).
+Iniciá sesión en `http://localhost:3000` y abrí `http://localhost:3000/vision-test`. Con `VISION_LOCAL_ROUTER_TRACE=1`, la terminal registra solo nombre de proveedor, duración y resultado, nunca fotos, credenciales ni texto devuelto por las APIs.
 
-**Fuera de alcance:** fallback en producción/Vercel, métricas de precisión, integración con Supabase de informes y cambios de front. El PR se deja en Draft hasta probar localmente.
+Para probar la caída de Groq sin hacer solicitudes a Groq, cambia temporalmente `VISION_LOCAL_TEST_GROQ_FAILURE=1` y reiniciá el servidor. Mientras OpenAI esté desactivada, esta prueba **debe** terminar con un error controlado; cuando OpenAI esté activada y con saldo, intentará el respaldo. **Después restaurá `VISION_LOCAL_TEST_GROQ_FAILURE=0`.**
 
-## Diagnóstico local del fallback real (sin tocar las claves)
+## Alcance y seguridad
 
-**Primero**, con el router habilitado, agregá estas variables a `.env.local`:
+El router está autorizado solo en **desarrollo local**. No habilita IA en Vercel y no publica reportes ni fotografías. El endpoint conserva login, comprobación del origen local, cuotas de admisión, normalización, límite total y validación de respuesta. El formulario definitivo y el merge a `main` requieren revisión con el equipo.
 
-```dotenv
-VISION_LOCAL_ROUTER_TRACE=1
-VISION_LOCAL_TEST_GROQ_FAILURE=0
-```
-
-Reiniciá `npm run dev`, iniciá sesión y abrí `http://localhost:3000/vision-test`. Al analizar la foto, la pantalla muestra la duración total desde el navegador, y la terminal del servidor muestra solo metadatos como:
-
-```json
-{"source":"vision-router-local","provider":"groq","outcome":"success","durationMs":1200}
-```
-
-**Luego**, para simular la caída de Groq sin realizar ninguna llamada a Groq, cambiá únicamente:
-
-```dotenv
-VISION_LOCAL_TEST_GROQ_FAILURE=1
-```
-
-Reiniciá `npm run dev` y analizá la misma foto de prueba. En la terminal se debe ver `groq / failed` con `testFailure:true`, seguido de `gemini / success` **si Gemini responde a tiempo** o `gemini / timeout` si excede su límite de 9 segundos. La interfaz puede mostrar error cuando ningún proveedor cumple el presupuesto global, y eso también prueba el flujo de error controlado.
-
-**Al terminar, restaurá siempre `VISION_LOCAL_TEST_GROQ_FAILURE=0` y reiniciá el servidor.** Con `1`, la web nunca llama a Groq y podría verse lenta por el fallback a Gemini. Esta simulación funciona únicamente en desarrollo local, no en Vercel, no modifica `main` y no requiere borrar ninguna clave.
-
-Los logs excluyen contenido de imágenes, respuestas, mensajes de error, claves y datos personales; el navegador solo recibe el tiempo total, no el nombre del proveedor. El registro por proveedor se habilita explícitamente con `VISION_LOCAL_ROUTER_TRACE=1`.
-
-Tests offline actualizados:
-
-```bash
-node scripts/check-vision-router.mjs
-npx tsc --noEmit
-```
-
-## Diagnóstico opcional del HTTP 400 de Gemini
-
-Si el fallback devuelve `provider_http 400`, activá temporalmente en `.env.local`:
-
-```dotenv
-VISION_LOCAL_GEMINI_HTTP_400_DETAIL=1
-```
-
-Reiniciá el servidor y analizá una imagen de prueba. La terminal imprimirá una línea `gemini-local-400` con el código y una razón abreviada y filtrada del error de Google, sin imprimir el request, la imagen ni la API key. **Revisá igualmente el texto antes de compartirlo**, porque los errores de servicios externos pueden incluir información inesperada.
-
-Al terminar, restaurá `VISION_LOCAL_GEMINI_HTTP_400_DETAIL=0`. Es una herramienta exclusiva de desarrollo local; no habilita visión en producción.
+La pantalla `/vision-test` es una herramienta de desarrollo y no sustituye el formulario definitivo de reportes.

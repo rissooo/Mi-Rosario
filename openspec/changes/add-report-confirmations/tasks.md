@@ -52,7 +52,7 @@
   - aplicar `onConfirmed` reemplazando `status` y `citizenVerification` en `reports` y en `selected` con los valores de la respuesta.
 
   Verificar en el navegador que confirmar "Falta de luz en Plaza 25 de Mayo" (2 de 3) muestra 3 de 3 y "Verificación ciudadana" como etapa actual sin recargar, y que al cerrar y volver a abrir el detalle se ve "Ya confirmaste este reporte".
-- [ ] 4.4 Leer `?reporte=<id>` en `ReportsMap` una sola vez, sacarlo de la dirección con `replaceState` y abrir ese reporte en la primera carga del área visible. Si no existe, ignorarlo. Verificar el login real desde el aviso del detalle, que la vuelta abre el mismo reporte con su elegibilidad, y que `?reporte=` con un id inexistente muestra el mapa sin detalle ni error.
+- [x] 4.4 Leer `?reporte=<id>` en `ReportsMap` una sola vez, sacarlo de la dirección con `replaceState` y abrir ese reporte en la primera carga del área visible. Si no existe, ignorarlo. Verificar el login real desde el aviso del detalle, que la vuelta abre el mismo reporte con su elegibilidad, y que `?reporte=` con un id inexistente muestra el mapa sin detalle ni error.
 - [x] 4.5 Documentar en `app/components/reports/README.md`:
   - la fuente de confirmaciones;
   - los valores de `?simular=` para confirmaciones, avisando que `UNAUTHENTICATED` afecta también a la publicación;
@@ -63,7 +63,7 @@
 ## 5. Verificación integral
 
 - [x] 5.1 Correr `npm.cmd run lint`, `npm.cmd exec -- tsc --noEmit --incremental false`, `npm.cmd run check:contracts`, `node app/components/map/check-map-data.mjs`, `node app/components/reports/check-report-form.mjs`, `npm.cmd run build`, `openspec.cmd validate add-report-confirmations --strict` y `git diff --check`. Verificar que todo pasa.
-- [ ] 5.2 Probar en un celular real sobre la preview de Vercel:
+- [x] 5.2 Probar en un celular real sobre la preview de Vercel:
   - sin sesión, el aviso de login y la vuelta al reporte;
   - confirmar un reporte a 2 de 3 y ver el cambio a "Verificación ciudadana";
   - el caso del autor con un reporte recién publicado.

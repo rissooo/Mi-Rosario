@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type Ref } from "react";
+import type { ImageSuggestion } from "@/lib/contracts/vision";
 import { INITIAL_CATEGORIES } from "@/lib/contracts/categories";
 import { SEVERITIES, SEVERITY_DETAILS, type Report } from "@/lib/contracts/reports";
 import { validatePublishReportRequest } from "@/lib/contracts/validation";
@@ -9,6 +10,7 @@ import { USING_SAMPLE_DATA } from "../map/report-source";
 import { groupFieldErrors, randomUuid, type FormField } from "./form-helpers";
 import { LoginPrompt } from "./LoginPrompt";
 import { PhotoField } from "./PhotoField";
+import { VisionAssist } from "./VisionAssist";
 import { toReportFields, type Draft, type DraftChanges } from "./report-draft";
 import { publishReport, type SimulatedFailure } from "./report-publisher";
 
@@ -76,6 +78,20 @@ export function ReportPanel({
   const [submission, setSubmission] = useState<Submission>({ state: "editing" });
   const [errors, setErrors] = useState<Errors>({});
   const publishing = useRef(false);
+  const latestDraft = useRef(draft);
+  latestDraft.current = draft;
+
+  const applyVisionSuggestion = (suggestion: ImageSuggestion, photo: File) => {
+    const current = latestDraft.current;
+    if (current.photo !== photo || publishing.current) return;
+    // Nunca reemplaza datos ingresados por el vecino y no toca dirección/ubicación.
+    const changes: DraftChanges = {};
+    if (!current.title.trim() && suggestion.title) changes.title = suggestion.title;
+    if (!current.description.trim() && suggestion.description) changes.description = suggestion.description;
+    if (!current.categoryId && suggestion.categoryId) changes.categoryId = suggestion.categoryId;
+    if (!current.severity && suggestion.severity) changes.severity = suggestion.severity;
+    if (Object.keys(changes).length) set(changes);
+  };
 
   // Al corregir un campo se borra su error, para no dejar a la vista un mensaje que ya no aplica.
   const set = (changes: DraftChanges) => {
@@ -171,6 +187,7 @@ export function ReportPanel({
           <div className={sectionClass}>
             <h3 className="font-semibold text-black dark:text-zinc-50">Foto</h3>
             <PhotoField photo={draft.photo} onChange={(photo) => set({ photo })} errors={errors.photo} />
+            <VisionAssist photo={draft.photo} disabled={submission.state === "publishing"} onSuggestion={applyVisionSuggestion} />
           </div>
 
           <div className={sectionClass}>

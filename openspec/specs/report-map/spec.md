@@ -206,3 +206,10 @@ Fuera del modo de ejemplo, el mapa MUST cargar los reportes del área visible de
 #### Scenario: Sin aviso de ejemplo
 - **WHEN** el mapa usa la API real
 - **THEN** la página no muestra el aviso de datos de ejemplo
+
+### Requirement: La raíz lleva al mapa
+La dirección raíz del sitio (`/`) MUST llevar a `/mapa` con un redirect temporal, sin mostrar contenido de plantilla.
+
+#### Scenario: Entrar a la dirección pública
+- **WHEN** una persona abre la dirección raíz del sitio
+- **THEN** llega a `/mapa` sin pasar por otra pantalla

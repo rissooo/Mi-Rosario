@@ -156,7 +156,7 @@ test("decodeCursor returns null on corrupted or invalid string", () => {
   assert.equal(decodeCursor(Buffer.from(JSON.stringify({ version: 2 })).toString("base64")), null);
 });
 
-test("mapRowToReport usa metadatos de la copia y deja visible el bloqueo de expiresAt", () => {
+test("mapRowToReport usa metadatos de la copia y devuelve expiresAt null porque la URL no vence", () => {
   const row = {
     id: "10000000-0000-4000-8000-000000000001",
     title: "Bache profundo en la calle",
@@ -180,10 +180,8 @@ test("mapRowToReport usa metadatos de la copia y deja visible el bloqueo de expi
 
   const report = mapRowToReport(row, "https://project.example/storage/v1/object/public/reports-public/10000000-0000-4000-8000-000000000001.jpg");
 
-  const validation = validateReport(report);
-  assert.equal(validation.valid, false);
-  assert.ok(validation.error?.fieldErrors?.["photo.expiresAt"]);
-  assert.equal(Object.hasOwn(report.photo, "expiresAt"), false);
+  assert.equal(validateReport(report).valid, true);
+  assert.equal(report.photo.expiresAt, null);
   assert.equal(report.photo.byteSize, 1912);
   assert.equal(report.id, row.id);
   assert.equal(report.citizenVerification.confirmationCount, 2);
@@ -192,7 +190,6 @@ test("mapRowToReport usa metadatos de la copia y deja visible el bloqueo de expi
   assert.deepEqual(report.location.address, { street: "Córdoba", number: 1250 });
   assert.equal(report.photo.url, "https://project.example/storage/v1/object/public/reports-public/10000000-0000-4000-8000-000000000001.jpg");
   assert.equal(report.photo.byteSize, 1912);
-  assert.equal(Object.hasOwn(report.photo, "expiresAt"), false);
 });
 
 test("getReportDetailService devuelve siempre la dirección del reporte", async () => {
@@ -236,10 +233,8 @@ test("getReportDetailService devuelve siempre la dirección del reporte", async 
     assert.deepEqual(response.result.data.location.address, { street: "Córdoba", number: 1250 });
     assert.equal(response.result.data.photo.url, "https://public.example/10000000-0000-4000-8000-000000000001.jpg");
     assert.equal(response.result.data.photo.byteSize, 1912);
-    assert.equal(Object.hasOwn(response.result.data.photo, "expiresAt"), false);
-    const validation = validateReport(response.result.data);
-    assert.equal(validation.valid, false);
-    assert.ok(validation.error?.fieldErrors?.["photo.expiresAt"]);
+    assert.equal(response.result.data.photo.expiresAt, null);
+    assert.equal(validateReport(response.result.data).valid, true);
   }
 });
 
@@ -282,14 +277,12 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
   assert.equal(response.httpStatus, 200);
   assert.ok(response.result.data);
   if (response.result.data) {
-    assert.equal(validateReportList(response.result.data).valid, false);
+    assert.equal(validateReportList(response.result.data).valid, true);
     assert.deepEqual(response.result.data.items[0].location.address, { street: "Córdoba", number: 1250 });
     assert.equal(response.result.data.items[0].photo.url, "https://public.example/10000000-0000-4000-8000-000000000001.jpg");
     assert.equal(response.result.data.items[0].photo.byteSize, 1912);
-    assert.equal(Object.hasOwn(response.result.data.items[0].photo, "expiresAt"), false);
-    const validation = validateReport(response.result.data.items[0]);
-    assert.equal(validation.valid, false);
-    assert.ok(validation.error?.fieldErrors?.["photo.expiresAt"]);
+    assert.equal(response.result.data.items[0].photo.expiresAt, null);
+    assert.equal(validateReport(response.result.data.items[0]).valid, true);
   }
 });
 
@@ -615,8 +608,8 @@ test("el claim de cuota devuelve el error del contrato y el Retry-After", async 
     idempotencyKey,
   });
 
-  assert.equal(response.httpStatus, 409);
-  assert.equal(response.result.error?.code, "PUBLICATION_IN_PROGRESS");
+  assert.equal(response.httpStatus, 429);
+  assert.equal(response.result.error?.code, "RATE_LIMITED");
   assert.equal(response.retryAfter, 37);
   assert.match(response.result.error?.message ?? "", /publicaciones en curso/);
   assert.deepEqual(mock.uploadedPaths, []);
@@ -640,8 +633,9 @@ test("el límite diario de publish_report compensa antes de marcar la clave fall
     idempotencyKey,
   });
 
-  assert.equal(response.httpStatus, 409);
-  assert.equal(response.result.error?.code, "PUBLICATION_IN_PROGRESS");
+  assert.equal(response.httpStatus, 429);
+  assert.equal(response.result.error?.code, "RATE_LIMITED");
+  assert.match(response.result.error?.message ?? "", /últimas 24 horas/);
   assert.equal(response.retryAfter, 7200);
   assert.deepEqual(mock.removedPaths, [`user-1/${reservedReportId}/original.jpg`, `${reservedReportId}.jpg`]);
   assert.deepEqual(mock.events.slice(-3), [

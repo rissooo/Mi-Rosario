@@ -192,6 +192,7 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
       "20261023000004_confirmations.sql",
       "20261023000005_public_reports_view.sql",
       "20261024000001_vision_quota.sql",
+      "20261024000002_public_reports_security_invoker.sql",
     ],
     "Las migraciones deben estar completas y ordenadas para el proyecto Supabase de pruebas en la nube",
   );
@@ -286,6 +287,25 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
     assert.match(viewProjection, new RegExp(`\\br\\.${column}\\b`, "i"), `La vista debe exponer ${column}`);
   }
   assert.doesNotMatch(viewProjection, /\br\.(?:user_id|storage_path|resolved|resolved_at|mime_type|byte_size)\b/i);
+
+  // La vista corre con los permisos de quien consulta y los clientes ven solo columnas públicas.
+  const invokerMigration = migrations.find(({ file }) => file === "20261024000002_public_reports_security_invoker.sql");
+  assert.ok(invokerMigration, "Debe existir la migración que pasa public_reports a security_invoker");
+  assert.match(invokerMigration.sql, /ALTER\s+VIEW\s+public\.public_reports\s+SET\s*\(\s*security_invoker\s*=\s*true\s*\)/i);
+  const columnGrant = invokerMigration.sql.match(/GRANT\s+SELECT\s*\(([\s\S]*?)\)\s*ON\s+TABLE\s+public\.reports\s+TO\s+anon,\s*authenticated\s*;/i)?.[1];
+  assert.ok(columnGrant, "Debe conceder SELECT por columnas sobre reports");
+  const grantedColumns = columnGrant.split(",").map((column) => column.trim());
+  for (const column of ["user_id", "storage_path", "resolved_at"]) {
+    assert.ok(!grantedColumns.includes(column), `No se debe conceder ${column} a los clientes`);
+  }
+  for (const column of viewProjection.matchAll(/\br\.([a-z_]+)\b/gi)) {
+    assert.ok(grantedColumns.includes(column[1]), `La vista usa r.${column[1]}, que debe estar concedida`);
+  }
+  assert.match(
+    invokerMigration.sql,
+    /CREATE\s+POLICY\s+"[^"]+"\s+ON\s+public\.reports\s+FOR\s+SELECT\s+TO\s+anon,\s*authenticated\s+USING\s*\(\s*status\s+IN\s*\('pending',\s*'citizen-verification'\)\s*\)/i,
+  );
+  assert.doesNotMatch(invokerMigration.sql, /GRANT\s+(?:INSERT|UPDATE|DELETE|ALL)/i);
   assert.match(publicViewMigration.sql, /WHERE\s+r\.status\s+IN\s*\('pending',\s*'citizen-verification'\)/i);
   // PostgREST serializa timestamptz como "...56.123456+00:00", que el contrato rechaza.
   for (const column of ["created_at", "updated_at", "corroborated_at"]) {

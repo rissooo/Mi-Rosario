@@ -250,9 +250,11 @@ async function runIntegrationChecks({ anonymousClient, TEST_USERS }) {
   await signInTestUsers(TEST_USERS);
   assert.equal(new Set(TEST_USERS.map((user) => user.id)).size, 4, "se requieren cuatro cuentas distintas");
 
-  await check("lectura directa de reports denegada a anon", async () => {
-    const { data, error } = await anonymousClient.from("reports").select("user_id").limit(1);
-    assert.ok(error || !data?.length, "anon leyó filas de reports");
+  await check("anon no lee columnas privadas de reports", async () => {
+    for (const columns of ["user_id", "storage_path", "resolved_at", "*"]) {
+      const { data, error } = await anonymousClient.from("reports").select(columns).limit(1);
+      assert.ok(error || !data?.length, `anon leyó ${columns} de reports`);
+    }
   });
 
   const sharedReport = await createTestReport(TEST_USERS[0], "RLS");

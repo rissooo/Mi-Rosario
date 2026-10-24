@@ -105,10 +105,10 @@ Salida de `supabase db advisors --linked --type all --level info` sobre `mpsdqlb
 
 | Nivel | Hallazgo | Objeto | Resolución |
 | --- | --- | --- | --- |
-| ERROR | `security_definer_view` | `public.public_reports` | Intencional por ahora: `reports` no da permisos a clientes y la vista proyecta solo columnas públicas y etapas MVP. Pendiente decidir antes de producción si se pasa a `security_invoker = true` con `GRANT SELECT` por columnas y una policy de lectura en `reports`. |
+| ERROR | `security_definer_view` | `public.public_reports` | **Resuelto** con `20261024000002_public_reports_security_invoker.sql`: la vista corre con `security_invoker = true`; `anon` y `authenticated` reciben `SELECT` solo sobre las 18 columnas públicas de `reports` y una policy limita las filas a `pending` y `citizen-verification`. Verificado en la base de pruebas: pedir `user_id`, `storage_path`, `resolved_at` o `*` devuelve 42501, insertar sigue rechazado y el advisor ya no lo reporta. |
 | WARN | `authenticated_security_definer_function_executable` | `claim_idempotency_key`, `publish_report`, `fail_idempotency_key`, `confirm_report`, `get_my_confirmation`, `admit_vision_analysis` | Intencional: son la API de las mutaciones; cada una obtiene la cuenta con `auth.uid()`, fija `search_path` vacío y revoca `PUBLIC`/`anon`. |
 | WARN | `auth_leaked_password_protection` | Auth | No aplica al flujo actual (login con Google); es una opción del plan pago. |
-| INFO | `rls_enabled_no_policy` | `reports`, `idempotency_keys`, `report_backend_limits`, `vision_daily_quota` | Intencional: RLS sin policies deniega todo acceso directo; se accede por la vista o por RPC. |
+| INFO | `rls_enabled_no_policy` | `idempotency_keys`, `report_backend_limits`, `vision_daily_quota` (y `reports` hasta la migración `20261024000002`) | Intencional: RLS sin policies deniega todo acceso directo; se accede por RPC. |
 | INFO | `unused_index` | seis índices de `reports`, `report_confirmations` e `idempotency_keys` | Esperable en una base recién creada con pocas filas; revisar con uso real. |
 
 ## Evidencia y estado

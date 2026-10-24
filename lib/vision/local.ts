@@ -1,6 +1,9 @@
 import "server-only";
 import { GoogleGenAI, type GoogleGenAIOptions } from "@google/genai";
 import { VisionError } from "./errors";
+import { createGroqVisionProvider } from "./groq";
+import { createOpenAIVisionProvider } from "./openai";
+import { createFallbackVisionProvider, type VisionFallbackStep } from "./router";
 import type { VisionDiagnostic } from "./diagnostics";
 import { createGeminiFetch, createGeminiProvider, createSimulatedProvider, type Generate, type VisionProvider } from "./provider";
 
@@ -15,14 +18,34 @@ export function selectLocalVisionProvider(
 ): VisionProvider | null {
   if (env.NODE_ENV !== "development" || env.VERCEL !== undefined) return null;
   const real = env.VISION_LOCAL_GEMINI_REAL === "1";
+  const router = env.VISION_LOCAL_ROUTER_REAL === "1";
   const simulated = env.VISION_LOCAL_SIMULATION === "1";
   // Sin autorización o con modos ambiguos se falla cerrado, sin fallback.
-  if (real === simulated) { diagnostic?.event("configuration", "flags_invalid", 503); return null; }
+  if (Number(real) + Number(simulated) + Number(router) !== 1) { diagnostic?.event("configuration", "flags_invalid", 503); return null; }
   if (simulated) return createSimulatedProvider();
+
+  if (router) {
+    const groqKey = env.GROQ_API_KEY?.trim();
+    if (!groqKey) { diagnostic?.event("configuration", "key_missing", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }
+    const steps: VisionFallbackStep[] = [
+      { name: "groq", provider: createGroqVisionProvider(groqKey), limitMs: 5_000 },
+    ];
+    const geminiKey = env.GEMINI_API_KEY?.trim();
+    if (geminiKey) steps.push({ name: "gemini", provider: buildGeminiProvider(geminiKey, env.GEMINI_MODEL ?? "gemini-3.8-flash", createClient, diagnostic), limitMs: 9_000 });
+    if (env.VISION_LOCAL_OPENAI_REAL === "1") {
+      const openaiKey = env.OPENAI_API_KEY?.trim();
+      if (!openaiKey) { diagnostic?.event("configuration", "key_missing", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }
+      steps.push({ name: "openai", provider: createOpenAIVisionProvider(openaiKey), limitMs: 4_000 });
+    }
+    return createFallbackVisionProvider(steps);
+  }
 
   const apiKey = env.GEMINI_API_KEY?.trim();
   if (!apiKey) { diagnostic?.event("configuration", "key_missing", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }
-  const model = env.GEMINI_MODEL ?? "gemini-3.8-flash";
+  return buildGeminiProvider(apiKey, env.GEMINI_MODEL ?? "gemini-3.8-flash", createClient, diagnostic);
+}
+
+function buildGeminiProvider(apiKey: string, model: string, createClient: ClientFactory, diagnostic?: VisionDiagnostic): VisionProvider {
   return createGeminiProvider((params) => {
     // Este transporte solo se invoca luego de validar origen, sesión, admisión e imagen.
     diagnostic?.event("client", "started");

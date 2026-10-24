@@ -23,6 +23,7 @@ const SEVERITY_LABELS: Record<string, string> = {
 export default function VisionTestClient() {
   const [image, setImage] = useState<File | null>(null);
   const [pending, setPending] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [suggestion, setSuggestion] = useState<VisionSuggestion | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +31,8 @@ export default function VisionTestClient() {
     event.preventDefault();
     if (!image || pending) return;
     setPending(true);
+    setElapsedMs(null);
+    const started = performance.now();
     setSuggestion(null);
     setError(null);
     try {
@@ -49,6 +52,7 @@ export default function VisionTestClient() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo analizar la fotografía.");
     } finally {
+      setElapsedMs(Math.round(performance.now() - started));
       setPending(false);
     }
   }
@@ -75,6 +79,10 @@ export default function VisionTestClient() {
           {pending ? "Analizando (hasta 20 segundos)..." : "Analizar con IA"}
         </button>
       </form>
+      {elapsedMs !== null && <p className="text-sm text-zinc-600" aria-live="polite">
+        Tiempo total de la solicitud desde el navegador: <strong>{(elapsedMs / 1000).toFixed(2)} s</strong>.
+        Para ver el tiempo de cada proveedor, activá VISION_LOCAL_ROUTER_TRACE=1 y revisá la terminal.
+      </p>}
       {error && <section role="alert" className="rounded-lg border border-amber-400 p-4">
         <strong>La IA no devolvió una sugerencia.</strong>
         <p className="mt-2 text-sm">{error}</p>

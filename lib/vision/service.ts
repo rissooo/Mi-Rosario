@@ -13,6 +13,8 @@ export type VisionDependencies = {
   enabled: () => boolean;
   authenticate: () => Promise<string | null>;
   origin: string;
+  /** Orígenes HTTPS exactos, solo para despliegue con autorización expresa. */
+  allowedOrigins?: readonly string[];
   admission: Admission;
   provider: VisionProvider;
   normalize?: (file: File, signal: AbortSignal) => Promise<NormalizedImage>;
@@ -42,8 +44,16 @@ export function createAnalyzeHandler(deps: VisionDependencies) {
       deps.diagnostic?.event(stage, "started");
       deadline.remaining();
       const origin = request.headers.get("origin");
-      if (!isLoopback(request.url) || new URL(request.url).origin !== deps.origin ||
-        (origin !== null && origin !== deps.origin) || request.headers.get("sec-fetch-site") === "cross-site") throw new VisionError("FORBIDDEN");
+      const targetOrigin = new URL(request.url).origin;
+      const allowed = deps.allowedOrigins;
+      if (allowed) {
+        // En producción, exigir Origin explícito y mismo origen exacto; no confiar en Referer.
+        if (!origin || !allowed.includes(origin) || targetOrigin !== origin ||
+          request.headers.get("sec-fetch-site") === "cross-site") throw new VisionError("FORBIDDEN");
+      } else if (!isLoopback(request.url) || targetOrigin !== deps.origin ||
+        (origin !== null && origin !== deps.origin) || request.headers.get("sec-fetch-site") === "cross-site") {
+        throw new VisionError("FORBIDDEN");
+      }
       deps.diagnostic?.event(stage, "ok");
       stage = "authentication";
       deps.diagnostic?.event(stage, "started");
@@ -52,7 +62,7 @@ export function createAnalyzeHandler(deps: VisionDependencies) {
       deps.diagnostic?.event(stage, "ok");
       stage = "admission";
       deps.diagnostic?.event(stage, "started");
-      release = deps.admission.acquire(userId);
+      release = await deadline.wait(Promise.resolve(deps.admission.acquire(userId)));
       deps.diagnostic?.event(stage, "ok");
       stage = "image";
       deps.diagnostic?.event(stage, "started");

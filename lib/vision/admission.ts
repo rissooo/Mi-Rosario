@@ -1,6 +1,6 @@
 import { VisionError } from "./errors";
 
-export interface Admission { acquire(userId: string): () => void }
+export interface Admission { acquire(userId: string): (() => void) | Promise<() => void> }
 
 export type AdmissionLimits = Readonly<{ maxAttempts: number; windowMs: number; maxActive: number; maxEntries: number }>;
 export const DEFAULT_ADMISSION_LIMITS: AdmissionLimits = Object.freeze({

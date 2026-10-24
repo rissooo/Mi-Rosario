@@ -213,7 +213,7 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
     );
     const granted = privilegeStatements.some((statement) =>
       statement[1].toUpperCase().startsWith("GRANT") && statement[2] === name &&
-      statement[5].toLowerCase().includes("authenticated"),
+      statement[5].toLowerCase().trim() === "authenticated",
     );
     assert.match(fn[0], /SET\s+search_path\s*=\s*''/i, `${name} debe fijar search_path vacío`);
     assert.ok(revoked, `${name} debe revocar ejecución a PUBLIC y anon`);
@@ -350,6 +350,9 @@ test("el script cloud carga su entorno solo al ejecutarse directamente y mantien
   assert.doesNotMatch(cloudScript, /\.auth\.admin\./i);
   assert.match(cloudScript, /if\s*\(isDirectExecution\)\s*await main\(\)/);
   assert.doesNotMatch(unitRunner, /check-reports-cloud\.mjs/);
+  assert.match(cloudScript, /la cuota rechaza el cuarto claim simultáneo/i);
+  assert.match(cloudScript, /la cuota rechaza el reporte 11 de una ventana de 24 horas/i);
+  assert.match(cloudScript, /for\s*\(let index = 1; index <= 10; index \+= 1\)/);
 });
 
 test("las cuotas configurables se serializan por usuario en claim y publicación", () => {
@@ -385,6 +388,9 @@ test("las cuotas configurables se serializan por usuario en claim y publicación
   assert.match(claim, /v_active_claim_count >= v_max_in_progress_claims/i);
   assert.match(claim, /v_published_count >= v_max_published_per_24h/i);
   assert.match(claim, /created_at >= now\(\) - interval '24 hours'/i);
+  assert.match(claim, /'action', 'LIMIT_REACHED'[\s\S]*?'quota', 'active_claims'/i);
+  assert.match(claim, /'action', 'LIMIT_REACHED'[\s\S]*?'quota', 'published_24h'/i);
+  assert.match(claim, /'retryAfter', v_retry_after/i);
 
   assert.ok(publish.indexOf("pg_catalog.pg_advisory_xact_lock") < publish.indexOf("FROM public.idempotency_keys"));
   assert.ok(publish.indexOf("v_published_count >= v_max_published_per_24h") < publish.indexOf("INSERT INTO public.reports"));

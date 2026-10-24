@@ -165,6 +165,16 @@ async function claim(user, key, payloadHash) {
   return data;
 }
 
+async function failClaim(user, key, reportId, payloadHash) {
+  const { data, error } = await user.client.rpc("fail_idempotency_key", {
+    p_key: key,
+    p_report_id: reportId,
+    p_payload_hash: payloadHash,
+  });
+  requireNoError(error, "No se pudo liberar un claim de prueba");
+  assert.equal(data?.action, "FAILED");
+}
+
 async function uploadReportPhotos(user, reportId) {
   const originalPath = `${user.id}/${reportId}/original.jpg`;
   const publicPath = `${reportId}.jpg`;
@@ -345,6 +355,57 @@ async function runIntegrationChecks({ anonymousClient, TEST_USERS }) {
     assert.equal(claims.filter((result) => result.action === "CLAIMED").length, 1);
     assert.equal(claims.filter((result) => result.action === "IN_PROGRESS").length, 1);
     assert.equal(claims[0].reportId, claims[1].reportId);
+    await failClaim(TEST_USERS[0], key, claims[0].reportId, payloadHash);
+  });
+
+  await check("la cuota rechaza el cuarto claim simultáneo", async () => {
+    const quotaUser = TEST_USERS[3];
+    const activeClaims = [];
+    try {
+      for (let index = 0; index < 3; index += 1) {
+        const key = randomUUID();
+        const payloadHash = hashFor(key);
+        const result = await claim(quotaUser, key, payloadHash);
+        assert.equal(result?.action, "CLAIMED", `el claim ${index + 1} debería entrar en la cuota`);
+        activeClaims.push({ key, payloadHash, reportId: result.reportId });
+      }
+
+      const rejectedKey = randomUUID();
+      const rejected = await claim(quotaUser, rejectedKey, hashFor(rejectedKey));
+      assert.equal(rejected?.action, "LIMIT_REACHED");
+      assert.equal(rejected?.code, "PUBLICATION_IN_PROGRESS");
+      assert.equal(rejected?.quota, "active_claims");
+      assert.ok(rejected?.retryAfter > 0);
+    } finally {
+      for (const active of activeClaims) {
+        await failClaim(quotaUser, active.key, active.reportId, active.payloadHash);
+      }
+    }
+  });
+
+  await check("la cuota rechaza el reporte 11 de una ventana de 24 horas", async () => {
+    // Escribe diez reportes persistentes con la cuenta 4; repetir requiere una cuenta fresca o esperar 24 h.
+    const quotaUser = TEST_USERS[3];
+    const publishedIds = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const report = await createTestReport(quotaUser, `cuota-${index}`);
+      publishedIds.push(report.reportId);
+    }
+
+    const rejectedKey = randomUUID();
+    const rejected = await claim(quotaUser, rejectedKey, hashFor(rejectedKey));
+    assert.equal(rejected?.action, "LIMIT_REACHED");
+    assert.equal(rejected?.code, "PUBLICATION_IN_PROGRESS");
+    assert.equal(rejected?.quota, "published_24h");
+    assert.ok(rejected?.retryAfter > 0);
+    assert.equal(rejected?.reportId, undefined, "la cuota no debe reservar el reporte 11");
+
+    const { data, error } = await anonymousClient
+      .from("public_reports")
+      .select("id")
+      .in("id", publishedIds);
+    requireNoError(error, "no se pudo contar la muestra de diez reportes publicados");
+    assert.equal(data.length, 10);
   });
 
   const replayReport = await createTestReport(TEST_USERS[0], "respuesta perdida");

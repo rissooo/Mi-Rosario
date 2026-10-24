@@ -17,6 +17,31 @@ const ALLOWED_GEMINI_MODELS: readonly string[] = Object.freeze(["gemini-3.8-flas
 export function createGeminiFetch(transport: typeof fetch = fetch): typeof fetch {
   return async (input, init) => {
     const response = await transport(input, init);
+    // Diagnóstico explícito y exclusivamente local. No cambia la respuesta ni publica datos.
+    // Solo lee el error de validación de Google (nunca el request, la foto o las claves).
+    if (response.status === 400 && process.env.NODE_ENV === "development" &&
+        process.env.VERCEL === undefined && process.env.VISION_LOCAL_GEMINI_HTTP_400_DETAIL === "1") {
+      try {
+        const raw: unknown = await response.clone().json();
+        const detail = raw && typeof raw === "object" && "error" in raw ? raw.error : undefined;
+        if (detail && typeof detail === "object") {
+          const err = detail as { status?: unknown; message?: unknown };
+          const secret = process.env.GEMINI_API_KEY?.trim();
+          let reason = typeof err.message === "string" ? err.message : "Sin detalle de Google";
+          if (secret) reason = reason.replaceAll(secret, "[clave oculta]");
+          reason = reason.replace(/AIza[A-Za-z0-9_-]{20,}/g, "[clave oculta]")
+            .replace(/[A-Za-z0-9+/]{120,}={0,2}/g, "[contenido oculto]")
+            .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[correo oculto]")
+            .replace(/[\r\n\t]+/g, " ").slice(0, 450);
+          console.info(JSON.stringify({
+            source: "gemini-local-400",
+            status: response.status,
+            googleStatus: typeof err.status === "string" ? err.status.slice(0, 64) : "unknown",
+            reason,
+          }));
+        }
+      } catch { /* El diagnóstico jamás debe alterar la respuesta original. */ }
+    }
     if (response.ok) {
       const parseJson = response.json.bind(response);
       response.json = async () => {

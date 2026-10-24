@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createFallbackVisionProvider } from "../lib/vision/router";
@@ -105,4 +107,11 @@ test("el registro que falla no interfiere con el análisis", async () => {
     { name: "groq", provider: success(), limitMs: 100 },
   ], () => { throw new Error("falló el destino de logs"); });
   assert.deepEqual(await router.analyze(image, new AbortController().signal, 150), suggestion);
+});
+
+test("Gemini 3.8 no envía candidateCount y utiliza el constructor compartido", () => {
+  const request = readFileSync(join(process.cwd(), "lib/vision/gemini-request.ts"), "utf8");
+  const provider = readFileSync(join(process.cwd(), "lib/vision/provider.ts"), "utf8");
+  assert.equal(/\bcandidateCount\s*:/.test(request), false);
+  assert.match(provider, /generate\(createGeminiGenerateParams\(/);
 });

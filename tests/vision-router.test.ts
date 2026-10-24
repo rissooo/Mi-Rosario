@@ -1,4 +1,4 @@
-import { previewVisionConfig, createPreviewAdmission } from "../lib/vision/preview-policy";
+import { previewVisionConfig, productionVisionConfig, deployedVisionConfig, deployedVisionAllowsUser, createPreviewAdmission } from "../lib/vision/preview-policy";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createFallbackVisionProvider } from "../lib/vision/router";
@@ -159,4 +159,81 @@ test("cupo distribuido requiere autorización y error controlado ante fallo o l�
     await assert.rejects(Promise.resolve(admission.acquire("approved")),
       (error: unknown) => error instanceof VisionError && error.code === expected);
   }
+});
+
+test("Production permanece apagado sin interruptor y modo explícitos", () => {
+  const base = {
+    VERCEL: "1", VERCEL_ENV: "production", GROQ_API_KEY: "fake-key",
+    VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app",
+    VISION_PRODUCTION_ACCESS: "public", VISION_PRODUCTION_ENABLED: "1",
+  };
+  assert.equal(productionVisionConfig(base).enabled, true);
+  assert.equal(deployedVisionConfig(base).access, "public");
+  const id = "123e4567-e89b-42d3-a456-426614174000";
+  assert.equal(deployedVisionAllowsUser(deployedVisionConfig(base), id), true);
+  for (const changes of [
+    { VISION_PRODUCTION_ENABLED: "0" },
+    { VISION_PRODUCTION_ENABLED: "" },
+    { VISION_PRODUCTION_ACCESS: "" },
+    { VISION_PRODUCTION_ACCESS: "everyone" },
+    { VISION_PRODUCTION_ORIGINS: "https://*.vercel.app" },
+    { VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app/" },
+    { VISION_PRODUCTION_ORIGINS: "http://mi-rosario-psi.vercel.app" },
+    { VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app,https://mi-rosario-psi.vercel.app" },
+    { VISION_PRODUCTION_USER_IDS: id },
+    { GROQ_API_KEY: "" },
+    { VERCEL_ENV: "preview" },
+    { VERCEL: "" },
+  ]) assert.equal(productionVisionConfig({ ...base, ...changes }).enabled, false, JSON.stringify(changes));
+});
+
+test("Production invited admite solo UUIDs explícitos; configuración Preview no habilita Production", () => {
+  const approved = "123e4567-e89b-42d3-a456-426614174000";
+  const other = "123e4567-e89b-42d3-a456-426614174001";
+  const base = {
+    VERCEL: "1", VERCEL_ENV: "production", GROQ_API_KEY: "fake-key",
+    VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app",
+    VISION_PRODUCTION_ACCESS: "invited", VISION_PRODUCTION_ENABLED: "1",
+    VISION_PRODUCTION_USER_IDS: approved,
+  };
+  const config = deployedVisionConfig(base);
+  assert.equal(config.enabled, true);
+  assert.equal(config.access, "invited");
+  assert.equal(deployedVisionAllowsUser(config, approved), true);
+  assert.equal(deployedVisionAllowsUser(config, other), false);
+  assert.equal(productionVisionConfig({ ...base, VISION_PRODUCTION_USER_IDS: "" }).enabled, false);
+  assert.equal(productionVisionConfig({ ...base, VISION_PRODUCTION_USER_IDS: "invalid" }).enabled, false);
+  assert.equal(deployedVisionConfig({
+    ...base, VISION_PRODUCTION_ENABLED: "0", VISION_DEPLOY_ENABLED: "1",
+    VISION_DEPLOY_ORIGINS: "https://mi-rosario-pr.vercel.app", VISION_DEPLOY_USER_IDS: approved,
+  }).enabled, false);
+  const preview = deployedVisionConfig({
+    ...base, VERCEL_ENV: "preview", VISION_DEPLOY_ENABLED: "1",
+    VISION_DEPLOY_ORIGINS: "https://mi-rosario-pr.vercel.app", VISION_DEPLOY_USER_IDS: approved,
+  });
+  assert.equal(preview.enabled, true);
+  assert.equal(preview.access, "invited");
+  assert.equal(deployedVisionAllowsUser(preview, other), false);
+});
+
+test("Production sigue usando RPC de cupos y falla cerrado si falla Supabase", async () => {
+  const approved = "123e4567-e89b-42d3-a456-426614174000";
+  const config = productionVisionConfig({
+    VERCEL: "1", VERCEL_ENV: "production", GROQ_API_KEY: "fake-key",
+    VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app",
+    VISION_PRODUCTION_ACCESS: "public", VISION_PRODUCTION_ENABLED: "1",
+  });
+  let count = 0;
+  const admission = createPreviewAdmission(
+    async () => { count++; return { data: true, error: null }; },
+    (id) => deployedVisionAllowsUser(config, id),
+  );
+  (await admission.acquire(approved))();
+  assert.equal(count, 1);
+  const failed = createPreviewAdmission(
+    async () => ({ data: null, error: new Error("DB offline") }),
+    (id) => deployedVisionAllowsUser(config, id),
+  );
+  await assert.rejects(Promise.resolve(failed.acquire(approved)),
+    (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
 });

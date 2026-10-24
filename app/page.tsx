@@ -1,10 +1,13 @@
 import Image from "next/image";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { LoginButton, LogoutButton } from "./auth-buttons";
 
 async function UserStatus() {
+  // getClaims puede consultar Date.now() internamente; hacerlo solo en tiempo de request.
+  await connection();
   const supabase = createClient(await cookies());
   const { data } = await supabase.auth.getClaims();
   const email = data?.claims.email;

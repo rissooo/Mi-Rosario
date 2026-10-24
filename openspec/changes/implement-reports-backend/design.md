@@ -10,6 +10,41 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
 
 **Fuera de alcance:** operaciones institucionales, moderación municipal, IA/visión, cambios a contratos compartidos, cambios al cliente Supabase compartido y limpieza automática de huérfanas. La verificación remota se limita al proyecto de pruebas en la nube; producción está bloqueada.
 
+## Cambios diferidos: requieren archivos ajenos o decisiones ajenas
+
+- **`Photo.expiresAt` nullable.** Archivos: `lib/contracts/**`, `docs/contracts.md`, `app/components/reports/ReportDetail.tsx:21` y `app/components/reports/report-publisher.ts:75`. El contrato de `main` exige una fecha y cambiarlo a nullable rompe `tsc` en los dos consumidores de Fran. Responsable: Fran; el cambio debe salir en un PR aparte desde `main`, con revisión de Agus, Valen y Fran. Cerrar adaptando el contrato y ambos consumidores en ese PR; hasta entonces el backend omite el campo y las pruebas conservan visible el rechazo del validador compartido.
+- **Multipart del formulario.** Archivo: `app/components/reports/report-publisher.ts`. El backend espera `report` como JSON, `image` como archivo e `Idempotency-Key`; el publisher actual guarda en memoria. Responsable: Fran. Cerrar conectándolo al endpoint real y probando el flujo con la misma clave al reintentar.
+- **Código específico de cuota.** Archivo: `lib/contracts/errors.ts`, fuera de esta zona. Responsable: Fran como editor del contrato, con revisión de Agus y Valen. Mientras tanto las cuotas responden `PUBLICATION_IN_PROGRESS` (409) con mensaje en español. Cerrar agregando y revisando un código contractual específico y luego actualizar el mapeo backend.
+- **Revisión de dirección.** Archivo: `docs/contracts.md`. La hoja compartida pide revisión de Agus y Valen; los artefactos disponibles no acreditan ambas revisiones. Responsables: Agus y Valen. Cerrar registrando sus reseñas por el canal de revisión del contrato; este change solo consume `Location.address`.
+- **Decisiones D1 a D8.** Responsable de confirmarlas: Fran. Los defaults se aplican provisionalmente en este change y se pueden revertir según se detalla abajo; no se espera esa confirmación para terminar el backend.
+- **Persistencia de pruebas reales.** Las tareas 4.1, 4.2 y 5.0–5.8 requieren un proyecto de pruebas en la nube y cuentas sintéticas. Responsable: Agus. Cerrar aplicando las migraciones y registrando la ejecución del checklist; no se ejecuta desde este trabajo.
+- **Saneamiento frente a clientes hostiles.** Sin credencial de servidor, un cliente autenticado puede invocar directamente Storage y RPC. SQL comprueba usuario, claim, rutas, metadatos declarados y límites, pero no puede leer los bytes para demostrar que el MIME coincide con la firma o que la copia perdió metadatos. Responsables: Agus y Fran. Cerrar con una decisión revisada sobre el límite de confianza y un flujo de carga que impida publicar una copia no saneada; no agregar `service_role` a este change.
+
+## Decisiones provisorias de Agus, a confirmar con Fran
+
+- **D1 — original privada y copia pública saneada.** La original es exactamente el archivo que recibe el servidor, aunque el navegador ya lo haya comprimido o limpiado. El backend revalida tipo y contenido y vuelve a sanear; guarda la entrada en `reports-originals` privado y publica la copia en `reports-public` usando `getPublicUrl`. Motivo: preservar el archivo recibido sin exponerlo y entregar una representación pública sin metadatos. Para revertir: acordar con Fran otra política de acceso y cambiar conjuntamente buckets, vista, DTO y consumidor antes de habilitarla.
+- **D2 — sin vencimiento inventado.** El contrato actual exige `Photo.expiresAt` como fecha UTC, mientras que `getPublicUrl` no vence. El backend sigue omitiendo esa propiedad; sus tests deben mostrar que el validador compartido rechaza la respuesta real. Motivo: no afirmar una expiración falsa ni tocar archivos compartidos o del frontend. Para cerrar/revertir: PR de contrato nullable desde `main` que también adapte `ReportDetail.tsx` y `report-publisher.ts`; luego eliminar la excepción temporal de validación del backend.
+- **D3 — orientación EXIF.** El saneador elimina EXIF, no conserva la orientación y no rota ni recodifica píxeles; se asume provisionalmente que el navegador normaliza la imagen. Motivo: evitar dependencias y decodificación en el servidor. Para revertir: acordar una transformación con Fran y Valen que rote píxeles sin reexponer EXIF y agregar evidencia de imágenes orientadas.
+- **D4 — máximo de imagen.** Cada imagen puede ocupar como máximo 4 MiB y el cliente la comprime antes de enviarla. El servidor rechaza un `Content-Length` que supera el máximo de multipart contractual antes de leer el cuerpo y vuelve a validar el tamaño real del archivo. Motivo: limitar memoria y Storage sin confundir el tamaño del multipart con el del archivo. Para revertir: revisar con Fran el límite del hosting y actualizar juntos el límite de cliente y servidor.
+- **D5 — cuota por usuario.** Se permiten como máximo 3 claims `in_progress` simultáneos y 10 reportes publicados en una ventana móvil de 24 horas. Los valores viven en una fila de configuración SQL restringida, y las comprobaciones se serializan con un lock transaccional por usuario tanto en el claim como al publicar. Motivo: limitar abuso sin agregar un rol de servicio ni un código fuera del contrato. Para revertir: después de revisar con Fran el uso real, cambiar los límites en SQL o retirar la cuota en una migración nueva antes de aplicarla a cualquier entorno.
+- **D6 — sin limpieza automática de huérfanas.** No se borran objetos mediante SQL ni se incorpora una credencial de servidor. Como diagnóstico de solo lectura, luego de aplicar el esquema en el proyecto de pruebas en la nube, se puede ejecutar:
+  ```sql
+  SELECT o.bucket_id, o.name, o.created_at
+  FROM storage.objects AS o
+  WHERE o.bucket_id IN ('reports-originals', 'reports-public')
+    AND o.created_at < now() - interval '1 hour'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM public.reports AS r
+      WHERE (o.bucket_id = 'reports-originals' AND r.storage_path = o.name)
+         OR (o.bucket_id = 'reports-public' AND r.photo_public_path = o.name)
+    )
+  ORDER BY o.created_at;
+  ```
+  Motivo: `storage.objects` no es una API de borrado y los objetos pueden quedar huérfanos tras fallas. Para revertir: acordar un proceso de limpieza por Storage API con credencial de servidor y retención antes de implementarlo.
+- **D7 — moderación y retención fuera del MVP.** Una copia pública de un reporte oculto o rechazado seguirá accesible por su URL mientras exista el objeto, incluso si deja de aparecer en `public_reports`. Motivo: el MVP no tiene un flujo de moderación ni borrado por Storage API. Para revertir: definir con Fran la acción de moderación, retención e invalidación de caché y añadir el flujo autorizado de borrado.
+- **D8 — configuración local de Supabase.** `supabase/config.toml` no se commitea. Motivo: se genera para el proyecto de pruebas y no está acordado como configuración compartida. Para ignorarlo solo en esta copia, agregar `/supabase/config.toml` a `.git/info/exclude` y comprobarlo con `git check-ignore -v supabase/config.toml`; no editar `.gitignore`. Para revertir: acordar con Fran versionarlo, revisar el diff y retirarlo de la exclusión local antes de agregarlo conscientemente.
+
 ## Decisiones
 
 ### 1. Orden de publicación y recuperación

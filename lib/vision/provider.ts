@@ -1,10 +1,10 @@
 import "server-only";
-import { ThinkingLevel, type GenerateContentParameters } from "@google/genai";
+import type { GenerateContentParameters } from "@google/genai";
 import { MAX_JSON_BYTES } from "../contracts/reports";
 import type { NormalizedImage } from "./image";
 import { VisionError } from "./errors";
 import type { VisionDiagnostic } from "./diagnostics";
-import { suggestionSchema, SYSTEM_INSTRUCTION } from "./prompt";
+import { createGeminiGenerateParams } from "./gemini-request";
 
 export interface VisionProvider {
   analyze(image: NormalizedImage, signal: AbortSignal, remainingMs: number): Promise<unknown>;
@@ -36,19 +36,7 @@ export function createGeminiProvider(generate: Generate, model = process.env.GEM
     async analyze(image, signal, remainingMs) {
       if (signal.aborted || remainingMs <= 0) throw new VisionError("ANALYSIS_TIMEOUT");
       try {
-        const reply = await generate({
-          model,
-          contents: [{ role: "user", parts: [{ text: "Analizá solo la evidencia visual de esta imagen urbana." },
-            { inlineData: { data: image.bytes.toString("base64"), mimeType: image.mimeType } }] }],
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-            responseMimeType: "application/json", responseJsonSchema: suggestionSchema(),
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }, maxOutputTokens: 2048,
-            candidateCount: 1, tools: [], automaticFunctionCalling: { disable: true },
-            abortSignal: signal,
-            httpOptions: { timeout: Math.min(20_000, remainingMs), retryOptions: { attempts: 1 } },
-          },
-        });
+        const reply = await generate(createGeminiGenerateParams(image, signal, remainingMs, model));
         diagnostic?.event("generate", "ok");
         if (signal.aborted) throw new VisionError("ANALYSIS_TIMEOUT");
         if (reply.candidates?.length !== 1 || reply.candidates[0].finishReason !== "STOP" || !reply.text ||

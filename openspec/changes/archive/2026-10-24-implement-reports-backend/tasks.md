@@ -56,7 +56,7 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 ## Revisiones y cambios diferidos
 
 - [x] Revisar con Agus y Valen la dirección, como requiere `docs/contracts.md`; el historial disponible no acredita ambas reseñas. Dada por revisada el 24/10/2026 por decisión de Fran (el equipo trabaja en la misma compu); el backend consume `Location.address` sin modificar el contrato.
-- [ ] Fran debe conectar `app/components/reports/report-publisher.ts` con el multipart acordado (`report` JSON, `image`, `Idempotency-Key`) en un cambio de interfaz.
+- [x] Fran debe conectar `app/components/reports/report-publisher.ts` con el multipart acordado (`report` JSON, `image`, `Idempotency-Key`) en un cambio de interfaz. Hecho en el PR #23 (`connect-reports-backend`), probado desde el celular contra producción el 24/10/2026.
 - [x] Fran debe proponer `Photo.expiresAt` nullable en un PR aparte desde `main`, con revisión de Agus, Valen y Fran. Hecho en el PR #18 (`adjust-photo-expiry-and-rate-limit`); el backend lo adopta en `fix/backend-contrato-fotos-cuotas`.
 - [x] Fran debe decidir con Agus y Valen si se agrega un código contractual específico para cuotas. Se agregó `RATE_LIMITED` (429) en el PR #18; el servicio lo usa para las dos cuotas.
 - [x] Confirmar con Fran los defaults provisorios D1–D8 de `design.md`. Confirmados el 24/10/2026: D1 con subidas solo del servidor, D8 versionando `config.toml` y D3, D4, D6 y D7 sin cambios; D2 y D5 siguen en el change de contrato.

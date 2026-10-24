@@ -9,8 +9,24 @@ export type VisionFallbackStep = Readonly<{
   limitMs: number;
 }>;
 
+export type VisionAttemptOutcome = "success" | "failed" | "invalid" | "timeout";
+export type VisionAttemptEvent = Readonly<{
+  provider: VisionFallbackStep["name"];
+  outcome: VisionAttemptOutcome;
+  durationMs: number;
+}>;
+export type VisionAttemptReporter = (event: VisionAttemptEvent) => void;
+
+function reportSafely(reporter: VisionAttemptReporter | undefined, event: VisionAttemptEvent) {
+  // El observador jamás puede bloquear una solicitud ni registrar imágenes o claves.
+  try { reporter?.(event); } catch {}
+}
+
 /** Un intento nunca puede superar ni su propio plazo ni el presupuesto del request. */
-export function createFallbackVisionProvider(steps: readonly VisionFallbackStep[]): VisionProvider {
+export function createFallbackVisionProvider(
+  steps: readonly VisionFallbackStep[],
+  reporter?: VisionAttemptReporter,
+): VisionProvider {
   if (!steps.length || steps.some((step) => !Number.isInteger(step.limitMs) || step.limitMs < 1)) {
     throw new VisionError("ANALYSIS_UNAVAILABLE");
   }
@@ -33,6 +49,8 @@ export function createFallbackVisionProvider(steps: readonly VisionFallbackStep[
         const onParentAbort = () => abortAttempt();
         signal.addEventListener("abort", onParentAbort, { once: true });
         const timer = setTimeout(abortAttempt, attemptMs);
+        const attemptStarted = performance.now();
+        let outcome: VisionAttemptOutcome = "failed";
         try {
           if (signal.aborted) throw new VisionError("ANALYSIS_TIMEOUT");
           // La API recibe la señal propia; Promise.race impide que una API lenta bloquee el fallback.
@@ -43,14 +61,19 @@ export function createFallbackVisionProvider(steps: readonly VisionFallbackStep[
           if (signal.aborted || controller.signal.aborted) throw new VisionError("ANALYSIS_TIMEOUT");
           // No aceptar una respuesta 200 con JSON inválido: probar el siguiente proveedor.
           const checked = validateImageSuggestion(raw);
-          if (!checked.valid) throw new VisionError("ANALYSIS_FAILED");
+          if (!checked.valid) { outcome = "invalid"; throw new VisionError("ANALYSIS_FAILED"); }
+          outcome = "success";
           return checked.value;
-        } catch {
+        } catch (error) {
+          if (signal.aborted || controller.signal.aborted ||
+              (error instanceof VisionError && error.code === "ANALYSIS_TIMEOUT")) outcome = "timeout";
           if (signal.aborted) throw new VisionError("ANALYSIS_TIMEOUT");
           // El usuario podrá completar manualmente si todos los proveedores fallan.
         } finally {
           clearTimeout(timer);
           signal.removeEventListener("abort", onParentAbort);
+          reportSafely(reporter, { provider: step.name, outcome,
+            durationMs: Math.max(0, Math.round(performance.now() - attemptStarted)) });
         }
       }
       if (signal.aborted || remainingMs - (performance.now() - began) <= 0) {

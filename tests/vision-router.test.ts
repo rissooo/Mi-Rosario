@@ -16,7 +16,7 @@ const fails = (): VisionProvider => ({
   async analyze() { throw new VisionError("ANALYSIS_UNAVAILABLE"); },
 });
 
-test("Groq primero: si funciona no se llama a OpenAI ni a OpenAI", async () => {
+test("Groq primero: si funciona no se llama a OpenAI", async () => {
   let secondaryCalls = 0;
   const router = createFallbackVisionProvider([
     { name: "groq", provider: success(), limitMs: 100 },

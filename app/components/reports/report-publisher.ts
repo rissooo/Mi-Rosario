@@ -1,21 +1,21 @@
 /**
- * Única fuente de publicación del formulario, con la forma de POST /api/reports (multipart +
- * Idempotency-Key). Hoy es falsa: guarda en memoria. Para integrar el backend se reemplaza
- * publishReport por un fetch.
+ * Única fuente de publicación del formulario: POST /api/reports (multipart + Idempotency-Key).
+ * Con NEXT_PUBLIC_REPORTS_SAMPLE_MODE=1 publica en memoria con la misma forma de respuesta.
  */
 import { ERROR_STATUS, type ApiResult, type ErrorCode } from "../../../lib/contracts/errors";
 import { PUBLICATION_CASES } from "../../../lib/contracts/fixtures";
 import {
   INITIAL_CONFIRMATION_THRESHOLD, type ImageMimeType, type Report, type ReportFields,
 } from "../../../lib/contracts/reports";
-import { validatePublicationHeaders, validatePublishReportRequest } from "../../../lib/contracts/validation";
+import { validatePublicationHeaders, validatePublishReportRequest, validateReport } from "../../../lib/contracts/validation";
 import { addPublishedSampleReport } from "../map/report-source";
+import { readApiResponse, usingSampleData } from "./api-response";
 import { randomUuid } from "./form-helpers";
 
 export type PublishInput = { report: ReportFields; image: File; idempotencyKey: string };
 export type PublishResponse = { status: number; body: ApiResult<Report> };
 
-/** Errores que se pueden simular con `?simular=` en /reportar mientras se usa la fuente falsa. */
+/** Errores que se pueden simular con `?simular=` en el modo de ejemplo. */
 export const SIMULATED_FAILURES = ["STORAGE_UNAVAILABLE", "PUBLICATION_IN_PROGRESS", "RATE_LIMITED", "UNAUTHENTICATED"] as const;
 export type SimulatedFailure = (typeof SIMULATED_FAILURES)[number];
 
@@ -48,6 +48,28 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function publishReport(
   input: PublishInput,
   options: { simulate?: SimulatedFailure | null; delayMs?: number } = {},
+): Promise<PublishResponse> {
+  return usingSampleData() ? publishSampleReport(input, options) : publishApiReport(input);
+}
+
+/** Si fetch falla (sin conexión), deja que el formulario muestre "Revisá tu conexión y reintentá". */
+async function publishApiReport(input: PublishInput): Promise<PublishResponse> {
+  const form = new FormData();
+  form.set("report", JSON.stringify(input.report));
+  form.set("image", input.image);
+  // Sin Content-Type: el navegador lo arma con el boundary del multipart.
+  const response = await fetch("/api/reports", {
+    method: "POST",
+    headers: { "Idempotency-Key": input.idempotencyKey },
+    body: form,
+    cache: "no-store",
+  });
+  return readApiResponse(response, validateReport, "No se pudo publicar el reporte. Reintentá en un rato.");
+}
+
+async function publishSampleReport(
+  input: PublishInput,
+  options: { simulate?: SimulatedFailure | null; delayMs?: number },
 ): Promise<PublishResponse> {
   await wait(options.delayMs ?? 800);
 

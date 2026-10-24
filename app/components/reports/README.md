@@ -17,15 +17,27 @@ La única fuente es `confirmation-source.ts`, con dos funciones:
 
 Las dos devuelven `{ status, body }` y validan cada respuesta exitosa con `validateMyConfirmation` o `validateConfirmationResult`. Una respuesta que no cumple el contrato se muestra como falla temporal.
 
-**Modo de ejemplo.** Hoy la fuente es falsa:
+## Fuentes de datos: API real y modo de ejemplo
 
-- Guarda las confirmaciones en memoria hasta recargar la página.
-- Toma como autor a quien publicó el reporte en esa sesión (`isSampleAuthor` en `map/report-source.ts`).
-- Guarda el reporte actualizado con `updateSampleReport`.
+Las tres fuentes (`map/report-source.ts`, `report-publisher.ts` y `confirmation-source.ts`) llaman a la API real del backend:
+
+- `GET /api/reports` con `bbox` y cursor, recorriendo todas las páginas;
+- `POST /api/reports` en multipart: `report` (JSON de los campos revisados), `image` (la foto preparada en el navegador) y el header `Idempotency-Key`, el mismo en cada reintento;
+- `GET /api/reports/{id}/confirmations/me` y `POST /api/reports/{id}/confirmations`.
+
+Todas usan `cache: "no-store"`. `api-response.ts` valida las respuestas exitosas con el contrato y respeta los errores del servidor (`{ error: { code, message, fieldErrors? } }`); lo demás se muestra como falla genérica.
+
+**Ojo:** el equipo trabaja contra el Supabase de producción, así que publicar o confirmar en local o en una preview escribe datos reales. Usá reportes identificables ("PRUEBA ...") y borralos después desde el panel de Supabase (la fila y sus dos fotos).
+
+**Modo de ejemplo.** Con `NEXT_PUBLIC_REPORTS_SAMPLE_MODE=1` en `.env.local`, las fuentes no llaman a la API:
+
+- Sirven los reportes de `map/sample-reports.ts` y guardan publicaciones y confirmaciones en memoria hasta recargar la página.
+- Toman como autor a quien publicó el reporte en esa sesión (`isSampleAuthor`).
+- La página muestra el aviso de datos de ejemplo.
 
 Los ejemplos "Falta de luz en Plaza 25 de Mayo" y "Bache sobre avenida en Alberdi" están a 2 de 3, así que con una sola cuenta se puede probar el paso a "Verificación ciudadana".
 
-Errores que se simulan en la confirmación (solo en el POST) con `?simular=`:
+Solo en el modo de ejemplo se pueden simular errores de la confirmación (solo en el POST) con `?simular=`:
 
 | Valor | Respuesta |
 | --- | --- |
@@ -33,10 +45,6 @@ Errores que se simulan en la confirmación (solo en el POST) con `?simular=`:
 | `REPORT_NOT_FOUND` | 404, sin opción de confirmar |
 | `INTERNAL_ERROR` | 500, con "Reintentar" |
 
-**Para conectar el backend** (PR #6 del backend):
-
-1. Reemplazar el cuerpo de `getMyConfirmation` y `confirmReport` por un `fetch` a esos endpoints con `cache: "no-store"`, porque la respuesta es privada.
-2. Conservar la validación del contrato.
-3. Cuando `USING_SAMPLE_DATA` pase a `false`, borrar `isSampleAuthor`, `findSampleReport` y `updateSampleReport`.
+Los tests de la interfaz (`check-report-form.mjs` y `check-map-data.mjs`) corren en el modo de ejemplo; `api-sources.test.ts` prueba las fuentes reales con `fetch` simulado.
 
 Los permisos reales (autor excluido, una confirmación por cuenta y reporte, transición atómica) los aplica la base de datos con RLS, no la interfaz.

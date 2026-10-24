@@ -29,7 +29,10 @@ try {
   } else {
     const emitted = program.emit();
     if (emitted.emitSkipped) throw new Error("No se pudieron compilar los tests de datos del mapa.");
-    const result = spawnSync(process.execPath, ["--test", join(output, `${testFile}.js`)], { stdio: "inherit", cwd: root });
+    // Estos tests ejercitan el modo de ejemplo; las fuentes reales se prueban en api-sources.test.
+    const result = spawnSync(process.execPath, ["--test", join(output, `${testFile}.js`)], {
+      stdio: "inherit", cwd: root, env: { ...process.env, NEXT_PUBLIC_REPORTS_SAMPLE_MODE: "1" },
+    });
     if (result.error) throw result.error;
     process.exitCode = result.status ?? 1;
   }

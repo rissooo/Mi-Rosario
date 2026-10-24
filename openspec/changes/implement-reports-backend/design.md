@@ -23,7 +23,7 @@ Cada ítem indica archivo, motivo, responsable y condición de cierre.
 - **Persistencia del test de cuota diaria.** Archivo: `scripts/integration/check-reports-cloud.mjs`. Motivo: el escenario crea diez reportes y no los borra; los objetos públicos quedan accesibles y una misma cuenta vuelve a quedar limitada durante 24 horas. Responsable: Agus. Cierre: ejecutarlo una sola vez con el proyecto de pruebas descartable y la cuenta 4 fresca, o esperar una ventana nueva.
 - **Cliente autenticado hostil — resuelto el 24/10/2026.** Con la clave publicable un cliente podía subir a Storage bytes sin sanear y publicarlos llamando directo a `publish_report`. Se cerró con D1: no hay policies de cliente en Storage y solo el servidor sube, con la clave secreta, después de sanear. Pendiente: comprobar el rechazo efectivo en la base de pruebas (5.7).
 - **Análisis Gemini.** Archivo de referencia: `lib/vision/**`. Motivo: ese módulo es responsabilidad de Valen y está fuera de esta zona. Responsable: Valen. Cierre: confirmar que el backend no recibe ni persiste sugerencias ni fotos de análisis.
-- **Versionado de configuración Supabase.** Archivo: `supabase/config.toml`. Motivo: la CLI necesita el archivo local para `db push`, pero este cambio decide no commitearlo. Responsable: Fran para confirmar si hace falta una configuración compartida. Cierre: confirmar la decisión; mientras tanto se ignora localmente con `.git/info/exclude`.
+- **Versionado de configuración Supabase — resuelto el 24/10/2026.** `supabase/config.toml` se versiona (D8) junto con `supabase/.gitignore`, que generó la CLI.
 
 ## Decisiones provisorias de Agus, a confirmar con Fran
 
@@ -50,7 +50,7 @@ Cada ítem indica archivo, motivo, responsable y condición de cierre.
 
   Motivo: SQL no gestiona los bytes del Storage. Cómo revertir: acordar retención y un proceso de borrado por Storage API con credencial de servidor.
 - **D7 — moderación y retención de copias públicas fuera del MVP.** La copia de un reporte oculto o rechazado sigue accesible por URL mientras exista el objeto, aunque deje de aparecer en `public_reports`. Motivo: no hay flujo de moderación ni borrado autorizado. Cómo revertir: definir moderación, retención e invalidación de caché y agregar el borrado seguro por Storage API.
-- **D8 — `supabase/config.toml` no se commitea.** Se genera localmente al inicializar la CLI. Motivo: evita compartir configuración no acordada; `db push` requiere que exista localmente, no que se versiona. Para ignorarlo en esta copia, ejecutar `Add-Content -LiteralPath .git/info/exclude -Value '/supabase/config.toml'` y verificar con `git check-ignore -v supabase/config.toml`. Cómo revertir: acordar su versionado, quitar la línea de `.git/info/exclude` y revisar el archivo antes de agregarlo.
+- **D8 — `supabase/config.toml` se versiona (decidido por Fran el 24/10/2026).** Lo generó `supabase init` (CLI 2.122.0). No contiene secretos: las credenciales se referencian con `env(...)` y los valores son de desarrollo local. Motivo: el equipo trabaja en la misma compu y la CLI lo necesita para `link` y `db push`. `supabase/.gitignore` excluye `.temp`, `.branches` y los archivos de entorno. Antes de cada commit que lo toque, revisar que no se haya agregado ningún valor secreto.
 
 ## Diseño y límites actuales
 
@@ -87,13 +87,13 @@ Las URLs de copias públicas no se revocan cuando un reporte se oculte; el objet
 
 Antes de los comandos, crear un proyecto Supabase dedicado de pruebas y comparar su ref con el proyecto de producción `rsvtchefnydihokivaqg`. Si coincide o el proyecto no está vacío, detenerse. No ejecutar `db reset --linked`.
 
-1. En la raíz del repositorio, ejecutar `npx.cmd supabase init`. Verificar que se creó `supabase/config.toml`, que no cambió ninguna migración y que el archivo no contiene secretos. Mantenerlo local con `Add-Content -LiteralPath .git/info/exclude -Value '/supabase/config.toml'`; verificar con `git check-ignore -v supabase/config.toml`.
-2. Ejecutar `npx.cmd supabase login`. Verificar que la CLI inició sesión con la cuenta de Agus; no copiar ni guardar el token.
-3. Ejecutar `npx.cmd supabase link --project-ref REF_PROYECTO_DE_PRUEBAS` sustituyendo el placeholder por el ref del panel. Antes de confirmar, comparar visualmente que el ref coincide con el proyecto de pruebas y es distinto de `rsvtchefnydihokivaqg`.
-4. Ejecutar `npx.cmd supabase migration list --linked`. Verificar que el proyecto remoto no tiene aplicadas estas migraciones y que las locales están en orden `20261023000001` a `20261023000005`; detenerse si hay historia inesperada.
-5. Ejecutar `npx.cmd supabase db push --dry-run --linked`. Verificar que el plan enumera únicamente las cinco migraciones anteriores en orden, sin seed ni migraciones de otros módulos.
-6. Solo si el ref y el dry run coinciden, ejecutar `npx.cmd supabase db push --linked`. Verificar que las cinco migraciones terminan sin error.
-7. Ejecutar otra vez `npx.cmd supabase migration list --linked`. Verificar que el remoto registra las cinco migraciones aplicadas en orden.
+1. `supabase/config.toml` ya está versionado (D8); no hace falta `supabase init`. Verificar que `git status` no muestre cambios en él antes de seguir.
+2. Ejecutar `npx supabase login`. Verificar que la CLI inició sesión con la cuenta del equipo dueña del proyecto de pruebas; no copiar ni guardar el token.
+3. Ejecutar `npx supabase link --project-ref REF_PROYECTO_DE_PRUEBAS` sustituyendo el placeholder por el ref del panel. Antes de confirmar, comparar visualmente que el ref coincide con el proyecto de pruebas y es distinto de `rsvtchefnydihokivaqg`.
+4. Ejecutar `npx supabase migration list --linked`. Verificar que el proyecto remoto no tiene aplicadas estas migraciones y que las locales están en orden: `20261023000001` a `20261023000005` (reportes) y `20261024000001` (cuota de Visión); detenerse si hay historia inesperada.
+5. Ejecutar `npx supabase db push --dry-run --linked`. Verificar que el plan enumera únicamente las seis migraciones anteriores en orden, sin seed.
+6. Solo si el ref y el dry run coinciden, ejecutar `npx supabase db push --linked`. Verificar que las seis migraciones terminan sin error.
+7. Ejecutar otra vez `npx supabase migration list --linked`. Verificar que el remoto registra las seis migraciones aplicadas en orden.
 8. En Supabase Studio → **Authentication → Users**, crear cuatro cuentas sintéticas con email confirmado y contraseñas independientes. No usar cuentas personales. La cuenta 4 debe estar fresca: la prueba de cuotas publica diez reportes persistentes y no los elimina.
 9. Completar localmente `.env.test.local` con los nombres `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`, `SUPABASE_SECRET_KEY` (la `sb_secret_...` del proyecto de pruebas, para simular las subidas del servidor), `TEST_PROJECT_CONFIRMED=true` y `REPORTS_TEST_USER_1_EMAIL`, `REPORTS_TEST_USER_1_PASSWORD` hasta `REPORTS_TEST_USER_4_EMAIL`, `REPORTS_TEST_USER_4_PASSWORD`. No guardar valores en Git ni compartirlos.
 10. Solo en ese proyecto dedicado, ejecutar `node scripts/integration/check-reports-cloud.mjs`. Verificar que todos los casos terminen en `OK`; el test de cuota crea diez reportes permanentes y una reejecución requiere una cuenta fresca o esperar 24 horas. Nunca apuntar el archivo de entorno a producción.

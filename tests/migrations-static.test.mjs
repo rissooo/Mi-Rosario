@@ -191,6 +191,7 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
       "20261023000003_idempotency.sql",
       "20261023000004_confirmations.sql",
       "20261023000005_public_reports_view.sql",
+      "20261024000001_vision_quota.sql",
     ],
     "Las migraciones deben estar completas y ordenadas para el proyecto Supabase de pruebas en la nube",
   );
@@ -201,7 +202,7 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
   )];
   const definerFunctions = functions.filter((match) => /\bSECURITY\s+DEFINER\b/i.test(match[0]));
   const privilegeStatements = [...allSql.matchAll(
-    /\b(REVOKE\s+ALL\s+PRIVILEGES\s+ON\s+FUNCTION|GRANT\s+EXECUTE\s+ON\s+FUNCTION)\s+public\.([a-z_][a-z0-9_]*)\s*\(([^)]*)\)\s+(FROM|TO)\s+([^;]+);/gi,
+    /\b(REVOKE\s+ALL(?:\s+PRIVILEGES)?\s+ON\s+FUNCTION|GRANT\s+EXECUTE\s+ON\s+FUNCTION)\s+public\.([a-z_][a-z0-9_]*)\s*\(([^)]*)\)\s+(FROM|TO)\s+([^;]+);/gi,
   )];
 
   assert.ok(definerFunctions.length > 0, "Debe haber funciones SECURITY DEFINER cubiertas");

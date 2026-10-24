@@ -1,6 +1,6 @@
 # Hoja de arquitectura y contratos compartidos
 
-Este paquete prepara el trabajo independiente de Valen (IA), Agus (backend) y Fran (frontend). Aporta DTO de TypeScript, validadores puros y ejemplos sintéticos. **No se implementa ningún handler HTTP, tabla de base de datos, operación de Storage, integración con Gemini, mapa ni pantalla.** Que un test de fixtures pase no prueba el comportamiento del servicio, la idempotencia, la concurrencia ni la autorización.
+Este paquete prepara el trabajo en paralelo de las tres áreas de la app: IA de visión, backend y frontend. Fran, Agus y Valen son responsables en conjunto de toda la app; no hay dueños por área. Aporta DTO de TypeScript, validadores puros y ejemplos sintéticos. **No se implementa ningún handler HTTP, tabla de base de datos, operación de Storage, integración con Gemini, mapa ni pantalla.** Que un test de fixtures pase no prueba el comportamiento del servicio, la idempotencia, la concurrencia ni la autorización.
 
 ## Registro de decisiones
 
@@ -19,7 +19,7 @@ El usuario aprobó la implementación de la arquitectura, las cuatro categorías
 | Versionado de la política y tratamiento retroactivo al cambiar el umbral | Decisión operativa pendiente; el umbral inicial de 3 está aprobado |
 | Mapeo de identidad y roles institucionales y alcance futuro compatible | Decisión pendiente para después del MVP |
 
-No se da por hecha ninguna aprobación ni revisión de Agus o Fran a partir de la aprobación del usuario o de los archivos generados. Sus revisiones del contrato y sus verificaciones individuales de incorporación siguen pendientes.
+No se da por hecha ninguna revisión del equipo a partir de la aprobación del usuario o de los archivos generados. Las revisiones del contrato (de al menos otra persona del equipo) y las verificaciones individuales de incorporación siguen pendientes.
 
 ## Puntos de entrada del paquete
 
@@ -59,7 +59,7 @@ La gravedad sugerida por la IA puede ser nula; el vecino la corrige o la elige a
 
 `ReportFields` exige título, descripción, categoryId, gravedad, ubicación `{ latitude, longitude, address }` y `reviewed: true`. `PublishReportRequest` agrega un `File` original: los campos del reporte se serializan en el campo JSON `report` del multipart, el archivo va en `image` y hace falta el header `Idempotency-Key` con un UUID. En el futuro backend, la clave tiene alcance por cuenta y operación.
 
-**Dirección (change `add-report-address`, pendiente de revisión de Agus y Valen).** `address` es `{ street, number }`. `street` es la calle: se le quitan los espacios sobrantes y debe tener de 2 a 80 caracteres. `number` es la altura: un entero de 1 a 99999, o `null` cuando el lugar no tiene altura (un parque o una plaza). Las coordenadas ubican el marcador en el mapa; la dirección es lo que leen los vecinos. El contrato no verifica que las dos describan el mismo lugar. `Report` devuelve la ubicación con la misma forma.
+**Dirección (change `add-report-address`, pendiente de revisión de otra persona del equipo).** `address` es `{ street, number }`. `street` es la calle: se le quitan los espacios sobrantes y debe tener de 2 a 80 caracteres. `number` es la altura: un entero de 1 a 99999, o `null` cuando el lugar no tiene altura (un parque o una plaza). Las coordenadas ubican el marcador en el mapa; la dirección es lo que leen los vecinos. El contrato no verifica que las dos describan el mismo lugar. `Report` devuelve la ubicación con la misma forma.
 
 `Report` agrega el ID asignado por el servidor, el estado, la foto, las fechas UTC de creación y actualización, los datos de verificación ciudadana, la disponibilidad y la evidencia institucional y la fecha de resolución, que puede ser nula. No incluye email, identidad privada del autor, ruta del objeto original ni datos internos de la publicación. `Photo` contiene el ID, la URL HTTPS autorizada para ver la foto, el vencimiento de esa URL (`expiresAt`), el MIME y el tamaño en bytes. La URL apunta a una versión segura para ver; el original sin cambios sigue siendo privado. Las URLs sintéticas usan `example.invalid` y, a propósito, no apuntan a fotos reales.
 
@@ -71,14 +71,14 @@ La gravedad sugerida por la IA puede ser nula; el vecino la corrige o la elige a
 
 ## Límite HTTP planificado — sin implementar
 
-| Responsable | Método / ruta | Entrada | Éxito |
+| Área | Método / ruta | Entrada | Éxito |
 | --- | --- | --- | --- |
-| Valen | POST `/api/vision/analyze` | Imagen multipart con sesión | 200 `{ data: { suggestion } }` |
-| Agus | POST `/api/reports` | Multipart con sesión + header de idempotencia | 201 la primera vez, 200 al repetir una ya completada, `{ data: Report }` |
-| Agus | GET `/api/reports` | Público: categoryId/status/bbox/limit/cursor | 200 `{ data: { items, nextCursor } }` |
-| Agus | GET `/api/reports/{id}` | Público: UUID | 200 `{ data: Report }` |
-| Agus | GET `/api/reports/{id}/confirmations/me` | UUID con sesión | 200 `{ data: MyConfirmation }` |
-| Agus | POST `/api/reports/{id}/confirmations` | UUID con sesión y `{}` | 201 la primera inserción, 200 si ya existía, `{ data: ConfirmationResult }` |
+| IA de visión | POST `/api/vision/analyze` | Imagen multipart con sesión | 200 `{ data: { suggestion } }` |
+| Backend | POST `/api/reports` | Multipart con sesión + header de idempotencia | 201 la primera vez, 200 al repetir una ya completada, `{ data: Report }` |
+| Backend | GET `/api/reports` | Público: categoryId/status/bbox/limit/cursor | 200 `{ data: { items, nextCursor } }` |
+| Backend | GET `/api/reports/{id}` | Público: UUID | 200 `{ data: Report }` |
+| Backend | GET `/api/reports/{id}/confirmations/me` | UUID con sesión | 200 `{ data: MyConfirmation }` |
+| Backend | POST `/api/reports/{id}/confirmations` | UUID con sesión y `{}` | 201 la primera inserción, 200 si ya existía, `{ data: ConfirmationResult }` |
 
 Los errores usan `{ error: { code, message, fieldErrors? } }`; los mensajes están en español. `ERROR_STATUS` define qué status HTTP corresponde a cada error, incluido 429 RATE_LIMITED para las cuotas por cuenta (ver los casos de publicación). Las respuestas 405 que genera el framework son excepciones del transporte. El futuro límite HTTP tiene que verificar la identidad y proteger las mutaciones con verificación de mismo origen, en lugar de aceptar campos de identidad enviados por quien llama.
 
@@ -130,7 +130,7 @@ El vocabulario completo de cuatro etapas no cambia. `MVP_REPORT_STAGES` / `MvpRe
 
 ## Hoja de revisión de fixtures
 
-Abrí este documento en una pantalla de celular con Fran; no hace falta ninguna pantalla de la aplicación para revisar la base. Compará los objetos de fixtures exportados con los DTO:
+Abrí este documento en una pantalla de celular con otra persona del equipo; no hace falta ninguna pantalla de la aplicación para revisar la base. Compará los objetos de fixtures exportados con los DTO:
 
 Cada ejemplo exportado es independiente de los demás, incluidas las ubicaciones, fotos, datos de verificación y cuerpos de respuesta anidados. Usá `cloneFixture(example)` para tener un borrador editable propio en cada consumidor o test, en lugar de editar el objeto exportado. Las copias usan structuredClone, que mantiene el comportamiento de un borrador editable sin compartir referencias; esto no cambia los DTO. Los tests verifican el aislamiento del grafo de objetos y las ediciones directas de datos anidados, además de las copias independientes de cada consumidor.
 
@@ -148,15 +148,15 @@ Cada ejemplo exportado es independiente de los demás, incluidas las ubicaciones
 
 ## Ramas, PRs y próximos changes
 
-| Responsable / rama | Próxima funcionalidad y dependencias |
+| Área / rama | Próxima funcionalidad y dependencias |
 | --- | --- |
-| Valen / `feature/gemini-vision` | Escribir las specs funcionales de visión; adaptador de Gemini validado y solo en el servidor, y transporte del análisis; depende del catálogo, los errores y la autenticación compartidos; no escribe reportes ni en Storage |
-| Agus / `feature/reports-backend` | Escribir las specs funcionales del backend; revisar el esquema real; migraciones y RLS que solo agregan, Storage del original y su versión para ver, publicación y recuperación, lista y detalle, y corroboraciones; depende de los contratos y fixtures compartidos |
-| Fran / `feature/interface-map` | Escribir las specs funcionales de la interfaz; categorías manuales, sugerencias revisadas, flujo de foto y reintentos, y mapa y detalle; empieza con fixtures e integra cuando los proveedores pasen la aceptación en ejecución |
+| IA de visión / `feature/gemini-vision` | Escribir las specs funcionales de visión; adaptador de Gemini validado y solo en el servidor, y transporte del análisis; depende del catálogo, los errores y la autenticación compartidos; no escribe reportes ni en Storage |
+| Backend / `feature/reports-backend` | Escribir las specs funcionales del backend; revisar el esquema real; migraciones y RLS que solo agregan, Storage del original y su versión para ver, publicación y recuperación, lista y detalle, y corroboraciones; depende de los contratos y fixtures compartidos |
+| Interfaz y mapas / `feature/interface-map` | Escribir las specs funcionales de la interfaz; categorías manuales, sugerencias revisadas, flujo de foto y reintentos, y mapa y detalle; empieza con fixtures e integra cuando los proveedores pasen la aceptación en ejecución |
 | Todos / futura propuesta institucional | Primero aprobar el alcance y la autoridad; en el MVP no hay cuentas municipales, controles de acción ni rutas de mutación |
 
-Se trabaja sobre la rama base revisada `chore/team-architecture`; el destino de integración propuesto es `main`. Cada responsable actualiza su propia rama de funcionalidad a partir de la base mergeada. Usá Conventional Commits enfocados y en español, y PRs enlazados con OpenSpec que expliquen el alcance, las dependencias, los contratos modificados y los resultados de las verificaciones. Los PRs de funcionalidades de interfaz incluyen evidencia en celular. Este pedido de implementación de la base no autorizó commits, creación de PRs, pushes, merges ni archive.
+Se trabaja sobre la rama base revisada `chore/team-architecture`; el destino de integración propuesto es `main`. Quien trabaje en un área actualiza esa rama de funcionalidad a partir de la base mergeada. Usá Conventional Commits enfocados y en español, y PRs enlazados con OpenSpec que expliquen el alcance, las dependencias, los contratos modificados, los resultados de las verificaciones y quién revisó. Los PRs de funcionalidades de interfaz incluyen evidencia en celular. Este pedido de implementación de la base no autorizó commits, creación de PRs, pushes, merges ni archive.
 
-Quienes proveen y quienes consumen revisan juntos los cambios en los límites. Asigná un solo editor por PR para contratos compartidos, archivos de paquetes, el proxy o las instrucciones. Conservá los cambios de los demás; no hagas force-push en sus ramas. No se afirma que haya protección de ramas configurada. Los archive se hacen solo cuando se cumplen los requisitos, las tareas y la revisión de cada change. Archivar la base nunca afirma que se entregaron endpoints, RLS, Storage ni el mapa.
+Un PR que toca contratos, migraciones, RLS o políticas de Storage, el proxy o las instrucciones compartidas necesita la revisión de al menos otra persona del equipo. Asigná un solo editor por PR para contratos compartidos, archivos de paquetes, el proxy o las instrucciones. Conservá los cambios de los demás; no hagas force-push en ramas compartidas. No se afirma que haya protección de ramas configurada. Los archive se hacen solo cuando se cumplen los requisitos, las tareas y la revisión de cada change. Archivar la base nunca afirma que se entregaron endpoints, RLS, Storage ni el mapa.
 
-Más adelante, Agus tiene que probar la autorización real, el rechazo de la autoconfirmación, los requests únicos y concurrentes, la recuperación de la publicación y el acceso privado a los objetos. Valen prueba la decodificación real de imágenes, los errores del proveedor y que no se guarde nada. Fran prueba la revisión real en celular, el acceso y la renovación de las fotos, los reintentos y la elegibilidad para confirmar. Ninguna de esas evidencias puede salir de los ejemplos sintéticos de este paquete.
+Más adelante, el equipo tiene que probar en el backend la autorización real, el rechazo de la autoconfirmación, los requests únicos y concurrentes, la recuperación de la publicación y el acceso privado a los objetos; en la IA de visión, la decodificación real de imágenes, los errores del proveedor y que no se guarde nada; y en la interfaz, la revisión real en celular, el acceso y la renovación de las fotos, los reintentos y la elegibilidad para confirmar. Ninguna de esas evidencias puede salir de los ejemplos sintéticos de este paquete.

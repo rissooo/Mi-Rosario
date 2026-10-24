@@ -20,17 +20,22 @@ otro asistente ya los cargó. Conservá el bloque generado de Next.js de arriba 
 regenera `next dev` y queda en inglés) y los flujos existentes de Codex y Claude;
 si hay instrucciones en conflicto, informalo en lugar de reemplazarlas.
 
-- Valen: IA en `feature/gemini-vision`. El análisis solo sugiere campos editables;
-  nunca publica, ni registra confirmaciones, ni guarda fotos.
-- Agus: backend/Supabase en `feature/reports-backend`. Es responsable de guardar
-  los reportes, el Storage de originales, la presentación segura, los permisos, la
-  idempotencia, la recuperación y la limpieza.
-- Fran: interfaz/mapas en `feature/interface-map`. Consume los contratos y las APIs
-  públicas; no importa clientes de proveedores, repositorios ni del servidor, ni
-  escribe directamente en las tablas del producto.
+- Equipo: Fran, Agus y Valen son responsables en conjunto de toda la app (front y
+  back). No hay dueños por módulo: cualquiera puede trabajar en cualquier área sin
+  pedir permiso. Las áreas sirven para ubicar el trabajo: IA de visión
+  (`feature/gemini-vision`), backend/Supabase (`feature/reports-backend`) e
+  interfaz/mapas (`feature/interface-map`).
+- IA de visión: el análisis solo sugiere campos editables; nunca publica, ni
+  registra confirmaciones, ni guarda fotos.
+- Backend: se encarga de guardar los reportes, el Storage de originales, la
+  presentación segura, los permisos, la idempotencia, la recuperación y la limpieza.
+- Código del navegador: consume los contratos y las APIs públicas; no importa
+  clientes de proveedores, repositorios ni del servidor, ni escribe directamente en
+  las tablas del producto.
 - Los DTO compartidos, los validadores puros y los fixtures sintéticos están en
-  `lib/contracts/`. Los cambios en esos límites necesitan la revisión de quienes
-  los proveen y de quienes los consumen.
+  `lib/contracts/`. Un PR que toca contratos, migraciones, RLS o políticas de
+  Storage, `proxy.ts` o las instrucciones compartidas (`AGENTS.md`, `CLAUDE.md`,
+  `GEMINI.md`) necesita la revisión de al menos otra persona del equipo.
 - Las categorías activas iniciales son exactamente `pothole`, `missing-light`,
   `damaged-sidewalk` y `faulty-traffic-light`. Conservá las etiquetas en español y
   los IDs existentes. Usá "falta de luz"; nunca infieras inseguridad. Una foto fija
@@ -60,8 +65,8 @@ si hay instrucciones en conflicto, informalo en lugar de reemplazarlas.
   artefactos de OpenSpec y comentarios del código). Los identificadores del código
   y del contrato (variables, funciones, tipos, campos e IDs como `pothole`) se
   mantienen como están para no romper el contrato compartido.
-- Enlazá los PRs con OpenSpec, incluí las dependencias y las verificaciones, y
-  asigná un solo editor por PR para los archivos compartidos.
+- Enlazá los PRs con OpenSpec, incluí las dependencias, las verificaciones y quién
+  revisó, y asigná un solo editor por PR para los archivos compartidos.
 - Cada uno usa su propia cuenta de asistente. Nunca compartas ni commitees archivos
   de entorno privados, tokens, secretos de service-role o de proveedores, cachés de
   autenticación ni historiales privados.

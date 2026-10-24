@@ -1,4 +1,4 @@
-# Límite de visión — Valen
+# Límite de visión
 
 Módulo de `feature/gemini-vision`. La Etapa 1 simulada está guardada en 069f7e1. La Etapa 2 implementa la conexión real exclusivamente local, con clave configurada privadamente por el usuario y prueba manual autorizada HTTP 200. Producción y Vercel siguen bloqueados.
 

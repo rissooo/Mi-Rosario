@@ -39,9 +39,9 @@ La regla existente que ignora `.env*` también ignora `.env.example`. Mantené l
 
 ## Revisiones pendientes
 
-- Agus y Fran revisan los DTO comunes, los validadores puros y los fixtures sintéticos antes de integrar módulos.
-- Fran demuestra que Claude lee explícitamente las instrucciones compartidas; Agus hace lo mismo en su propia sesión de Gemini/Antigravity.
+- Al menos otra persona del equipo revisa los DTO comunes, los validadores puros y los fixtures sintéticos antes de integrar áreas.
+- Cada persona demuestra, en la sesión de su propio asistente (Claude, Gemini/Antigravity o Codex), que lee explícitamente las instrucciones compartidas.
 - Revisar la hoja de contratos de `contracts.md` en una pantalla de celular. Es una revisión de documentos y fixtures, no la aceptación de una pantalla del producto.
 - Verificar los flujos exactos de incorporación en esos entornos. Esta base no envió mensajes, invitaciones ni hizo cambios en cuentas.
 
-Ver `contracts.md` para las reglas de ramas y PRs, los responsables de las tareas y las decisiones de producto y operación pendientes.
+Ver `contracts.md` para las reglas de ramas y PRs, las áreas de trabajo y las decisiones de producto y operación pendientes.

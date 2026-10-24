@@ -12,7 +12,7 @@ export function previewVisionConfig(env: Env): {
   allowedOrigins: readonly string[];
   allowedUserIds: ReadonlySet<string>;
 } {
-  if (env.VERCEL !== "1" || env.VISION_DEPLOY_ENABLED !== "1") {
+  if (env.VERCEL !== "1" || env.VERCEL_ENV !== "preview" || env.VISION_DEPLOY_ENABLED !== "1") {
     return { enabled: false, allowedOrigins: [], allowedUserIds: new Set() };
   }
   const origins = (env.VISION_DEPLOY_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);

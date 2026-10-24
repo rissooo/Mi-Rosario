@@ -40,7 +40,8 @@ const PROMPT = [
 
 const PROVIDERS = [
   { name: "gemini", model: "gemini-3.8-flash", key: process.env.GEMINI_API_KEY },
-  { name: "openai", model: "gpt-5.6-luna", key: process.env.OPENAI_API_KEY },
+  // Queda preparado, pero NO usa OpenAI ni consume crédito hasta habilitarlo explícitamente.
+  { name: "openai", model: "gpt-5.6-luna", key: process.env.VISION_BENCHMARK_OPENAI === "1" ? process.env.OPENAI_API_KEY : undefined },
   { name: "groq", model: "qwen/qwen3.8-27b", key: process.env.GROQ_API_KEY }
 ].filter((provider) => Boolean(provider.key?.trim()));
 
@@ -213,6 +214,9 @@ async function main() {
   const cases = await readCases(process.argv.slice(2));
   if (!PROVIDERS.length) {
     throw new Error("No se encontraron GEMINI_API_KEY, OPENAI_API_KEY ni GROQ_API_KEY. Configuralas en .env.local.");
+  }
+  if (process.env.OPENAI_API_KEY?.trim() && process.env.VISION_BENCHMARK_OPENAI !== "1") {
+    console.log("OpenAI desactivado: definí VISION_BENCHMARK_OPENAI=1 solo después de habilitar saldo y revisar costos.");
   }
   console.log("Modelos disponibles: " + PROVIDERS.map((p) => p.name + "/" + p.model).join(", "));
   console.log("AVISO: cada foto se enviará a las APIs externas con clave configurada. No uses imágenes sensibles.");

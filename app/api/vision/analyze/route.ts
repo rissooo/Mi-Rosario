@@ -7,7 +7,8 @@ import { errorResponse, VisionError } from "@/lib/vision/errors";
 import { selectLocalVisionProvider } from "@/lib/vision/local";
 import { createAnalyzeHandler } from "@/lib/vision/service";
 import { createVisionDiagnostic } from "@/lib/vision/diagnostics";
-import { createPreviewAdmission, previewVisionConfig, previewVisionProvider } from "@/lib/vision/preview";
+import { createPreviewAdmission, previewVisionConfig } from "@/lib/vision/preview-policy";
+import { previewVisionProvider } from "@/lib/vision/preview";
 
 // Cache Components usa Node.js por defecto y no admite exportar runtime.
 let admission: LocalAdmission | undefined;

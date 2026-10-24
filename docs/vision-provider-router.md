@@ -70,3 +70,15 @@ Tests offline actualizados:
 node scripts/check-vision-router.mjs
 npx tsc --noEmit
 ```
+
+## Diagnóstico opcional del HTTP 400 de Gemini
+
+Si el fallback devuelve `provider_http 400`, activá temporalmente en `.env.local`:
+
+```dotenv
+VISION_LOCAL_GEMINI_HTTP_400_DETAIL=1
+```
+
+Reiniciá el servidor y analizá una imagen de prueba. La terminal imprimirá una línea `gemini-local-400` con el código y una razón abreviada y filtrada del error de Google, sin imprimir el request, la imagen ni la API key. **Revisá igualmente el texto antes de compartirlo**, porque los errores de servicios externos pueden incluir información inesperada.
+
+Al terminar, restaurá `VISION_LOCAL_GEMINI_HTTP_400_DETAIL=0`. Es una herramienta exclusiva de desarrollo local; no habilita visión en producción.

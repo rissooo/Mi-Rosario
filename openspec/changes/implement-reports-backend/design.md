@@ -2,32 +2,38 @@
 
 ## Contexto
 
-Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el comportamiento exigido. La rama contiene handlers, servicios y cinco migraciones que Agus confirmó que no se aplicaron en ningún entorno. La verificación SQL requiere un proyecto de pruebas en la nube separado de producción. `Location.address` forma parte del contrato que llegó a `main` con el PR #3.
+Este cambio implementa publicación, consulta pública y confirmaciones de reportes en `feature/reports-backend`. El PR #3 de Fran (`add-report-address`) ya está integrado en `main`; el backend consume `Location.address`. Las cinco migraciones no se aplicaron en ningún entorno. Solo se comprobaron con tests unitarios y análisis estático; la siguiente comprobación de SQL requiere un proyecto de pruebas en la nube separado de producción.
 
-## Objetivos / Fuera de alcance
+## Objetivos y fuera de alcance
 
-**Objetivos:** publicación recuperable y transaccional; separación entre original privada y copia pública saneada; exposición pública mínima; confirmación atómica bajo el umbral efectivo del reporte; verificación reproducible en un proyecto de pruebas en la nube cuyo ref sea distinto de producción.
+**Objetivos:** conservar el flujo de publicación recuperable, limitar abuso por cuenta, almacenar originales en privado y servir copias públicas saneadas, exponer una vista mínima y confirmar reportes con conteo atómico.
 
-**Fuera de alcance:** operaciones institucionales, moderación municipal, IA/visión, cambios a contratos compartidos, cambios al cliente Supabase compartido y limpieza automática de huérfanas. La verificación remota se limita al proyecto de pruebas en la nube; producción está bloqueada.
+**Fuera de alcance:** cambios al contrato compartido o a la interfaz, análisis Gemini, estados institucionales, moderación, borrado automático de objetos y aplicación de migraciones a producción. No se usa `service_role` ni `sb_secret`.
 
 ## Cambios diferidos: requieren archivos ajenos o decisiones ajenas
 
-- **`Photo.expiresAt` nullable.** Archivos: `lib/contracts/**`, `docs/contracts.md`, `app/components/reports/ReportDetail.tsx:21` y `app/components/reports/report-publisher.ts:75`. El contrato de `main` exige una fecha y cambiarlo a nullable rompe `tsc` en los dos consumidores de Fran. Responsable: Fran; el cambio debe salir en un PR aparte desde `main`, con revisión de Agus, Valen y Fran. Cerrar adaptando el contrato y ambos consumidores en ese PR; hasta entonces el backend omite el campo y las pruebas conservan visible el rechazo del validador compartido.
-- **Multipart del formulario.** Archivo: `app/components/reports/report-publisher.ts`. El backend espera `report` como JSON, `image` como archivo e `Idempotency-Key`; el publisher actual guarda en memoria. Responsable: Fran. Cerrar conectándolo al endpoint real y probando el flujo con la misma clave al reintentar.
-- **Código específico de cuota.** Archivo: `lib/contracts/errors.ts`, fuera de esta zona. Responsable: Fran como editor del contrato, con revisión de Agus y Valen. Mientras tanto las cuotas responden `PUBLICATION_IN_PROGRESS` (409) con mensaje en español. Cerrar agregando y revisando un código contractual específico y luego actualizar el mapeo backend.
-- **Revisión de dirección.** Archivo: `docs/contracts.md`. La hoja compartida pide revisión de Agus y Valen; los artefactos disponibles no acreditan ambas revisiones. Responsables: Agus y Valen. Cerrar registrando sus reseñas por el canal de revisión del contrato; este change solo consume `Location.address`.
-- **Decisiones D1 a D8.** Responsable de confirmarlas: Fran. Los defaults se aplican provisionalmente en este change y se pueden revertir según se detalla abajo; no se espera esa confirmación para terminar el backend.
-- **Persistencia de pruebas reales.** Las tareas 4.1, 4.2 y 5.0–5.8 requieren un proyecto de pruebas en la nube y cuentas sintéticas. Responsable: Agus. Cerrar aplicando las migraciones y registrando la ejecución del checklist; no se ejecuta desde este trabajo.
-- **Saneamiento frente a clientes hostiles.** Sin credencial de servidor, un cliente autenticado puede invocar directamente Storage y RPC. SQL comprueba usuario, claim, rutas, metadatos declarados y límites, pero no puede leer los bytes para demostrar que el MIME coincide con la firma o que la copia perdió metadatos. Responsables: Agus y Fran. Cerrar con una decisión revisada sobre el límite de confianza y un flujo de carga que impida publicar una copia no saneada; no agregar `service_role` a este change.
+Cada ítem indica archivo, motivo, responsable y condición de cierre.
+
+- **`Photo.expiresAt` nullable.** Archivos: `lib/contracts/**`, `docs/contracts.md`, `app/components/reports/ReportDetail.tsx:21` y `app/components/reports/report-publisher.ts:75`. Motivo: el contrato actual exige una fecha, pero `getPublicUrl` no vence; cambiar el contrato rompe los dos consumidores. Responsable: Fran, con revisión de Agus y Valen. Cierre: PR aparte desde `main`, cambiar contrato y consumidores, y retirar la excepción temporal del validador local.
+- **Conectar el multipart del formulario.** Archivo: `app/components/reports/report-publisher.ts`. Motivo: el backend espera `report` como JSON, `image` como archivo y `Idempotency-Key`; el publisher actual conserva el reporte en memoria. Responsable: Fran. Cierre: publicar al endpoint, enviar las tres partes y comprobar reintento con la misma clave.
+- **Código contractual de cuota.** Archivo: `lib/contracts/errors.ts`. Motivo: no hay un error específico de cuota y este change no puede editar el contrato. Responsable: Fran como editor compartido, con revisión de Agus y Valen. Cierre: agregar el código en un PR de contrato y mapearlo desde el servicio; mientras tanto se devuelve `PUBLICATION_IN_PROGRESS` (409) en español.
+- **Revisión de dirección.** Archivo de referencia: `docs/contracts.md`. Motivo: pide revisión de Agus y Valen y no hay evidencia disponible de ambas. Responsables: Agus y Valen. Cierre: registrar ambas reseñas; este backend ya consume `Location.address` sin modificarlo.
+- **Confirmar D1–D8.** Archivo: este `design.md`. Motivo: son defaults provisionales para no bloquear el trabajo. Responsable: Fran (Francisco). Cierre: revisar cada decisión con Agus y registrar el acuerdo antes de cambiar buckets, cuotas, retención o el flujo de fotos.
+- **Configurar y probar una base real.** Archivos: `supabase/migrations/**` y `scripts/integration/check-reports-cloud.mjs`. Motivo: hacen falta un proyecto dedicado y cuatro cuentas manuales; no hay evidencia de ejecución de SQL, RLS, Storage o concurrencia. Responsable: Agus. Cierre: ejecutar el checklist siguiente, registrar salidas y completar solo las tareas respaldadas por evidencia.
+- **Persistencia del test de cuota diaria.** Archivo: `scripts/integration/check-reports-cloud.mjs`. Motivo: el escenario crea diez reportes y no los borra; los objetos públicos quedan accesibles y una misma cuenta vuelve a quedar limitada durante 24 horas. Responsable: Agus. Cierre: ejecutarlo una sola vez con el proyecto de pruebas descartable y la cuenta 4 fresca, o esperar una ventana nueva.
+- **Cliente autenticado hostil.** Archivos: `supabase/migrations/20261023000003_idempotency.sql` y `lib/reports/photos.ts`. Motivo: con la clave publicable un cliente puede invocar directamente Storage y las RPC; SQL valida usuario, claim, ruta, hash guardado, metadatos declarados, límites y `CHECK`, pero no lee los bytes para verificar MIME ni eliminación de metadatos. Responsables: Agus y Fran. Cierre: acordar el límite de confianza o diseñar un flujo que impida publicar bytes no saneados; no añadir secretos de servidor a este cambio.
+- **Análisis Gemini.** Archivo de referencia: `lib/vision/**`. Motivo: ese módulo es responsabilidad de Valen y está fuera de esta zona. Responsable: Valen. Cierre: confirmar que el backend no recibe ni persiste sugerencias ni fotos de análisis.
+- **Versionado de configuración Supabase.** Archivo: `supabase/config.toml`. Motivo: la CLI necesita el archivo local para `db push`, pero este cambio decide no commitearlo. Responsable: Fran para confirmar si hace falta una configuración compartida. Cierre: confirmar la decisión; mientras tanto se ignora localmente con `.git/info/exclude`.
 
 ## Decisiones provisorias de Agus, a confirmar con Fran
 
-- **D1 — original privada y copia pública saneada.** La original es exactamente el archivo que recibe el servidor, aunque el navegador ya lo haya comprimido o limpiado. El backend revalida tipo y contenido y vuelve a sanear; guarda la entrada en `reports-originals` privado y publica la copia en `reports-public` usando `getPublicUrl`. Motivo: preservar el archivo recibido sin exponerlo y entregar una representación pública sin metadatos. Para revertir: acordar con Fran otra política de acceso y cambiar conjuntamente buckets, vista, DTO y consumidor antes de habilitarla.
-- **D2 — sin vencimiento inventado.** El contrato actual exige `Photo.expiresAt` como fecha UTC, mientras que `getPublicUrl` no vence. El backend sigue omitiendo esa propiedad; sus tests deben mostrar que el validador compartido rechaza la respuesta real. Motivo: no afirmar una expiración falsa ni tocar archivos compartidos o del frontend. Para cerrar/revertir: PR de contrato nullable desde `main` que también adapte `ReportDetail.tsx` y `report-publisher.ts`; luego eliminar la excepción temporal de validación del backend.
-- **D3 — orientación EXIF.** El saneador elimina EXIF, no conserva la orientación y no rota ni recodifica píxeles; se asume provisionalmente que el navegador normaliza la imagen. Motivo: evitar dependencias y decodificación en el servidor. Para revertir: acordar una transformación con Fran y Valen que rote píxeles sin reexponer EXIF y agregar evidencia de imágenes orientadas.
-- **D4 — máximo de imagen.** Cada imagen puede ocupar como máximo 4 MiB y el cliente la comprime antes de enviarla. El servidor rechaza un `Content-Length` que supera el máximo de multipart contractual antes de leer el cuerpo y vuelve a validar el tamaño real del archivo. Motivo: limitar memoria y Storage sin confundir el tamaño del multipart con el del archivo. Para revertir: revisar con Fran el límite del hosting y actualizar juntos el límite de cliente y servidor.
-- **D5 — cuota por usuario.** Se permiten como máximo 3 claims `in_progress` simultáneos y 10 reportes publicados en una ventana móvil de 24 horas. Los valores viven en una fila de configuración SQL restringida, y las comprobaciones se serializan con un lock transaccional por usuario tanto en el claim como al publicar. Motivo: limitar abuso sin agregar un rol de servicio ni un código fuera del contrato. Para revertir: después de revisar con Fran el uso real, cambiar los límites en SQL o retirar la cuota en una migración nueva antes de aplicarla a cualquier entorno.
-- **D6 — sin limpieza automática de huérfanas.** No se borran objetos mediante SQL ni se incorpora una credencial de servidor. Como diagnóstico de solo lectura, luego de aplicar el esquema en el proyecto de pruebas en la nube, se puede ejecutar:
+- **D1 — original privada y copia pública saneada.** La original es el archivo que recibe el servidor, incluso si el navegador ya lo comprimió o limpió. El backend vuelve a validar tipo y contenido y a sanearlo; guarda la entrada en `reports-originals` privado y sirve la copia en `reports-public` con `getPublicUrl`. Motivo: conservar lo recibido sin exponerlo y publicar una representación sin metadatos. Cómo revertir: acordar otra política y cambiar conjuntamente buckets, vista, servicio y consumidor antes de usarla.
+- **D2 — `Photo.expiresAt` no se inventa.** El contrato actual exige una fecha UTC y la URL pública no vence; por eso el DTO real sigue omitiendo el campo y los tests muestran el rechazo contractual. Motivo: no afirmar un vencimiento falso ni tocar archivos compartidos. Cómo cerrar/revertir: PR de contrato nullable desde `main`, con `docs/contracts.md` y los dos consumidores revisados; después, eliminar la validación temporal local.
+- **D3 — no preservar ni rotar orientación EXIF.** El saneador elimina EXIF sin rotar ni recodificar píxeles; se asume provisionalmente que el navegador normaliza la imagen. Motivo: no decodificar ni agregar dependencias. Cómo revertir: acordar con Fran y Valen una transformación que rote píxeles antes de quitar EXIF y probar una foto orientada.
+- **D4 — máximo 4 MiB por imagen, comprimida por el cliente.** El servidor comprueba `Content-Length` antes de `formData()` contra `MAX_MULTIPART_BYTES` (4 MiB más hasta 64 KiB de envoltura multipart) y comprueba `File.size` real antes de leer sus bytes. Motivo: aceptar el multipart válido sin perder el límite de la imagen. Cómo revertir: acordar otro límite con Fran y actualizar conjuntamente el contrato/cliente y el servidor.
+- **D5 — cuotas por usuario.** Se permiten tres claims `in_progress` simultáneos y diez reportes publicados en ventana móvil de 24 horas. Los valores iniciales están en `report_backend_limits`; claim y publicación serializan el conteo con un lock transaccional por usuario. Motivo: reducir abuso sin servicio privilegiado ni código de error fuera del contrato. Cómo revertir: cambiar el límite en SQL antes de aplicar migraciones; una vez aplicada una migración, cambiarlo mediante una migración nueva.
+- **D6 — no limpiar huérfanas en SQL.** No se ejecuta `DELETE` sobre `storage.objects`; el borrado requiere Storage API con credencial de servidor. Para detección de solo lectura en el proyecto de pruebas, ejecutar:
+
   ```sql
   SELECT o.bucket_id, o.name, o.created_at
   FROM storage.objects AS o
@@ -41,145 +47,58 @@ Ver `proposal.md` para el objetivo y `specs/reports-backend/spec.md` para el com
     )
   ORDER BY o.created_at;
   ```
-  Motivo: `storage.objects` no es una API de borrado y los objetos pueden quedar huérfanos tras fallas. Para revertir: acordar un proceso de limpieza por Storage API con credencial de servidor y retención antes de implementarlo.
-- **D7 — moderación y retención fuera del MVP.** Una copia pública de un reporte oculto o rechazado seguirá accesible por su URL mientras exista el objeto, incluso si deja de aparecer en `public_reports`. Motivo: el MVP no tiene un flujo de moderación ni borrado por Storage API. Para revertir: definir con Fran la acción de moderación, retención e invalidación de caché y añadir el flujo autorizado de borrado.
-- **D8 — configuración local de Supabase.** `supabase/config.toml` no se commitea. Motivo: se genera para el proyecto de pruebas y no está acordado como configuración compartida. Para ignorarlo solo en esta copia, agregar `/supabase/config.toml` a `.git/info/exclude` y comprobarlo con `git check-ignore -v supabase/config.toml`; no editar `.gitignore`. Para revertir: acordar con Fran versionarlo, revisar el diff y retirarlo de la exclusión local antes de agregarlo conscientemente.
 
-## Decisiones
+  Motivo: SQL no gestiona los bytes del Storage. Cómo revertir: acordar retención y un proceso de borrado por Storage API con credencial de servidor.
+- **D7 — moderación y retención de copias públicas fuera del MVP.** La copia de un reporte oculto o rechazado sigue accesible por URL mientras exista el objeto, aunque deje de aparecer en `public_reports`. Motivo: no hay flujo de moderación ni borrado autorizado. Cómo revertir: definir moderación, retención e invalidación de caché y agregar el borrado seguro por Storage API.
+- **D8 — `supabase/config.toml` no se commitea.** Se genera localmente al inicializar la CLI. Motivo: evita compartir configuración no acordada; `db push` requiere que exista localmente, no que se versiona. Para ignorarlo en esta copia, ejecutar `Add-Content -LiteralPath .git/info/exclude -Value '/supabase/config.toml'` y verificar con `git check-ignore -v supabase/config.toml`. Cómo revertir: acordar su versionado, quitar la línea de `.git/info/exclude` y revisar el archivo antes de agregarlo.
 
-### 1. Orden de publicación y recuperación
+## Diseño y límites actuales
 
-1. Reclamar la clave autenticada. La RPC fija el bloqueo en tres minutos y genera y persiste un `report_id` UUID en la misma fila; las repeticiones recuperan ese ID. `report_id` no lleva FK obligatoria porque la reserva precede al reporte; `publish_report` valida y materializa esa relación en la misma transacción.
-2. Validar y sanear la imagen, subir la original al bucket privado y la copia derivada al bucket público.
-3. Invocar `publish_report`. La RPC vuelve a validar la propiedad y el hash, bloquea la fila de idempotencia con `FOR UPDATE`, inserta el reporte `pending` usando el ID reservado y completa la clave en una transacción. Si ya existe el mismo ID para el mismo usuario, completa la clave y devuelve el reporte existente. Un ID perteneciente a otro usuario o una carga incompatible falla sin exponer datos.
+### Publicación e idempotencia
 
-`fail_idempotency_key` es la RPC autenticada análoga para un error definitivo anterior al commit. El servicio compensa ambos objetos y marca la clave como fallida solo ante un error definitivo de base anterior al commit. Un timeout o error de red deja intactos los objetos y el estado para que el reintento resuelva el resultado. Ningún error posterior al commit borra fotos ni marca la clave como fallida.
+1. El handler revisa `Content-Length` y devuelve 413 antes de leer el cuerpo si supera el máximo multipart. Después exige sesión, parsea `report` como JSON y valida `image`; el tamaño real se comprueba antes de llamar `arrayBuffer()`.
+2. `claim_idempotency_key` usa `auth.uid()`, `INSERT ... ON CONFLICT`, reserva y persiste `report_id` y fija un lock de tres minutos. La fila se protege con RLS y grants explícitos.
+3. El servicio sube la original y la copia saneada. Solo los rechazos definitivos anteriores al commit compensan ambas fotos y luego marcan la clave como fallida. Errores desconocidos, timeout o red conservan fotos y claim; cualquier error posterior al commit también los conserva.
+4. `publish_report` bloquea y valida el claim, verifica existencia y metadatos declarados de los objetos, inserta el reporte y completa la clave dentro de una transacción. Si el reporte ya existe para el mismo usuario, completa el claim y devuelve el mismo ID.
+5. Ambas RPC de cuota toman el lock transaccional por usuario. El claim rechaza el cuarto claim activo y el número 11 de la ventana antes de subir; `publish_report` vuelve a revisar el límite diario antes de insertar. Hasta que el contrato agregue un código específico, ambos rechazos usan `PUBLICATION_IN_PROGRESS` (409) y `Retry-After`.
 
-### 2. Fotos originales y públicas
+### Fotos y DTO
 
-- **D1 — pendiente de confirmar con Fran:** “original” es exactamente el archivo que recibe el servidor, incluso si el navegador ya lo comprimió o le quitó metadatos. El backend no confía en el saneamiento del navegador: revalida el tipo, conserva esa entrada en `reports-originals` privado y genera una copia saneada para publicar.
-- `reports-originals` es privado. La ruta de la original puede incluir el usuario, pero nunca sale en una vista o DTO. La política de inserción permite el objeto solo si la ruta corresponde a una clave `in_progress` del usuario; la política de borrado solo permite retirar una original que aún no pertenece a un reporte publicado. Ambas comprobaciones usan helpers `SECURITY DEFINER` con `search_path` vacío.
-- Para reintentar sobre las mismas rutas con `upsert`, Storage también requiere permisos `SELECT` y `UPDATE`; quedan limitados por el mismo helper al claim propio `in_progress`.
-- `reports-public` es público, tiene límites de tamaño y MIME y recibe la copia sin metadatos con ruta `{report_id}.{ext}`, sin identificador de usuario. La política de inserción exige una clave propia en estado `in_progress`. La URL de lectura se arma con `getPublicUrl`; no se generan URLs firmadas para visitantes anónimos.
-- **D2 — pendiente de confirmar con Fran:** `Photo.url` apunta a la copia pública. `mimeType` y `byteSize` describen esa copia, se almacenan en columnas propias y se proyectan en la vista pública. No se inventa un vencimiento para una URL pública que no vence.
-- El saneamiento se hace en TypeScript puro, sin decodificar la imagen: quita segmentos APP0–APP15 y comentarios COM en JPEG (incluye EXIF, XMP e IPTC), chunks `eXIf` y de texto en PNG y chunks EXIF/XMP en WebP. En JPEG se descartan los bytes posteriores a EOI; en WebP se recalcula el tamaño RIFF. Si la estructura no se puede analizar con seguridad, se rechaza como error de validación. Se valida el contenido y MIME contra `IMAGE_MIME_TYPES`.
-- El saneamiento elimina la orientación EXIF pero no rota ni vuelve a codificar los píxeles. Una foto tomada en orientación vertical podría verse girada en la copia pública; queda pendiente acordar con Fran cómo resolverlo sin agregar dependencias.
-- **Bloqueo de contrato:** `Photo.expiresAt` es obligatorio y debe ser una fecha UTC en `lib/contracts/reports.ts` y `docs/contracts.md`, mientras que `getPublicUrl` no tiene vencimiento. Lista y detalle hoy omiten ese campo; los tests verifican que `validateReport` rechaza ambas respuestas. La propuesta abierta es aceptar `expiresAt: null` en un PR separado creado desde `main`, con revisión de Agus, Valen y Fran. Este cambio no inventa una fecha, no modifica contratos compartidos y no presenta el DTO como válido.
-- La elección de bucket público para la copia saneada es provisoria y debe confirmarse con Fran. La original nunca se hace pública. La política/retención de originales sigue siendo provisoria según el contrato.
-- No se implementa limpieza SQL de huérfanas. Borrar objetos exige Storage API con credencial de servidor; queda pendiente definir una limpieza segura que no agregue `service_role` al flujo normal.
+- `reports-originals` es privado. Su ruta incluye cuenta e ID reservado, nunca se proyecta ni se devuelve. `reports-public` tiene límite de 4 MiB y MIME JPEG/PNG/WebP; la copia usa ruta `{report_id}.{ext}` y su URL se forma con `getPublicUrl`.
+- El saneador TypeScript elimina segmentos APP y COM en JPEG (incluidos EXIF/XMP/IPTC/comentarios), `eXIf` y chunks de texto en PNG, y EXIF/XMP en WebP. Descarta bytes tras EOI, recalcula RIFF y rechaza entradas incompletas o con longitudes inválidas. No decodifica ni rota píxeles.
+- `Photo.mimeType` y `byteSize` describen la copia saneada. Lista y detalle omiten `expiresAt`; el contrato real las rechaza. El helper local TEMPORAL clona el DTO, agrega una fecha válida solo a la copia de validación y comprueba los demás campos. Nunca altera la respuesta ni el test que demuestra la desviación.
+- Las respuestas de error usan mensajes fijos en español; no devuelven texto crudo de SQL/Storage, rutas, IDs de usuario ni nombres de función.
 
-### 3. Idempotencia
+### Esquema, RLS y confirmaciones
 
-- `idempotency_keys` mantiene RLS activa y no permite lectura directa del cliente. Las RPC `claim_idempotency_key`, `publish_report` y `fail_idempotency_key` obtienen el usuario de `auth.uid()`, son `SECURITY DEFINER` con `search_path = ''`, revocan ejecución a `public` y `anon`, y conceden ejecución solo a `authenticated`.
-- `claim_idempotency_key` recibe clave y hash, sin parámetro de duración. `locked_until` usa un intervalo fijo de tres minutos, separado de `expires_at`; el claim es atómico con `INSERT ... ON CONFLICT` y recuperación condicional de locks vencidos.
-- El hash cubre SHA-256 de bytes originales y JSON canónico, incluida `location.address`, con texto normalizado, coordenadas normalizadas y claves ordenadas. Se almacena `report_id`, no un cuerpo de respuesta. Una repetición completada reconstruye el DTO desde la base y vuelve a obtener la URL pública.
+- Las cinco migraciones se ordenan así: `20261023000001_reports_storage.sql` crea buckets; `20261023000002_reports_table.sql` crea `reports`; `20261023000003_idempotency.sql` crea claims, límites y RPC de publicación/helpers Storage; `20261023000004_confirmations.sql` crea confirmaciones y RPC; `20261023000005_public_reports_view.sql` crea la proyección pública y los grants.
+- `reports.status` solo admite `pending` y `citizen-verification`; el umbral vive en cada fila y el conteo lo mantiene `confirm_report` bajo `FOR UPDATE`. `public_reports` excluye identidad, original, `resolved` y `resolved_at`; expone ruta/metadatos de la copia, dirección, conteo y umbral.
+- Las tablas `public` creadas activan RLS. `reports` no concede acceso directo a `anon` ni `authenticated`; solo se da `SELECT` en la vista. Las funciones `SECURITY DEFINER` fijan `search_path = ''`, revocan `PUBLIC`/`anon` y conceden `EXECUTE` únicamente a `authenticated`.
+- `confirm_report` obtiene la cuenta con `auth.uid()`, lee el umbral real de la fila, asegura unicidad por usuario/reporte y actualiza conteo/transición atómicamente. Una confirmación ya existente responde `ALREADY_CONFIRMED` antes de comprobar etapa cerrada; una nueva confirmación no permitida responde `REPORT_RESOLVED`.
+- `get_my_confirmation` devuelve el dato propio y el conteo/umbral de la misma fila; el handler no consulta tablas cerradas.
 
-### 4. Esquema, RLS y confirmaciones
+### Límites SQL ante llamadas directas
 
-- `reports.status` acepta solo `pending` y `citizen-verification` en el MVP. Tiene `confirmation_threshold` por fila con default 3 y `confirmation_count` mantenido por `confirm_report` bajo el lock de la fila. Las columnas `street` y `street_number` validan calle de 2 a 80 caracteres sin espacios exteriores y número opcional de 1 a 99999. Se guardan por separado la ruta privada original y `photo_public_path`.
-- Se revocan todos los privilegios directos sobre `reports` a `anon` y `authenticated`; solo `public_reports` recibe `SELECT`. No hay políticas de mutación de clientes. La vista incluye solo estados MVP y expone `photo_public_path`, `confirmation_count`, `confirmation_threshold`, dirección y campos públicos. Excluye `user_id`, ruta original, MIME, tamaño y campos institucionales `resolved`/`resolved_at`.
-- La vista usa `security_invoker = false` con privilegios de propietario acotados para proyectar filas, y recibe permisos `SELECT` solo para `anon` y `authenticated`. Revisar en el proyecto de pruebas el propietario de la vista y sus permisos efectivos.
-- `confirm_report` toma usuario de `auth.uid()`, usa `SECURITY DEFINER`, `search_path` vacío y `FOR UPDATE`; no acepta conteos del cliente. Lee el umbral de la fila, inserta con unicidad por reporte/usuario y actualiza el conteo/transición dentro de la operación.
-- La precedencia es: validar existencia y autoría; si ya hay una confirmación de esa cuenta, responder `ALREADY_CONFIRMED` idempotentemente; si no existe y la etapa ya no admite nuevas confirmaciones, responder `REPORT_RESOLVED`; en caso contrario insertar y contar. Así, el replay existente se distingue de un intento nuevo en una etapa cerrada.
-- `GET .../confirmations/me` usa `get_my_confirmation`, una RPC `SECURITY DEFINER` con `search_path` vacío, identidad desde `auth.uid()` y ejecución concedida solo a `authenticated`. En una sola consulta obtiene el estado, la confirmación propia y el conteo/umbral efectivos de esa misma fila; el servicio no consulta `reports` ni `report_confirmations` directamente.
-- Se elimina `get_confirmation_threshold()` inmutable. El cliente no puede escribir `confirmation_count` ni cambiar el umbral.
+La clave publicable permite que un usuario autenticado invoque Storage y RPC directamente; `SECURITY DEFINER` no las convierte en operaciones exclusivas del servidor. Las policies ligan el objeto al usuario, al ID reservado y a un claim `in_progress` vigente. `publish_report` valida `auth.uid()`, owner/estado/hash guardado, rutas coherentes con usuario/ID/MIME, existencia de los dos objetos, MIME y tamaño declarados en Storage, tamaño máximo y cuota. Los `CHECK` validan título (5–120), descripción (10–1000), categoría, gravedad, estado MVP, coordenadas, calle (2–80 sin espacios exteriores), número (1–99999 o nulo), MIME/tamaño de copia, conteo no negativo y umbral positivo. SQL no puede probar que los bytes correspondan al MIME, que el hash coincida con el contenido ni que la copia haya perdido metadatos; es un límite aceptado pendiente de revisión de amenaza.
 
-### 5. API, dirección y cursor
+Las URLs de copias públicas no se revocan cuando un reporte se oculte; el objeto seguirá accesible hasta que Storage API lo borre. Moderación, retención e invalidación de caché quedan abiertas.
 
-- Los servicios publican solo mediante `publish_report`; el `INSERT` directo de la clave publicable queda prohibido. Para listas y detalle, se mapea `photo.url` desde la URL pública de `photo_public_path`.
-- Lista y detalle usan `Location.address` del contrato compartido y siempre devuelven `location.address`, sin cast ni calle vacía de fallback. El PR #3 ya está integrado en `main`; no queda un adaptador propio por reemplazar.
-- Se conserva la forma de cursor `{ version, createdAt, id, filters }`, el orden estable y los filtros existentes. `resolvedAt` del DTO se resuelve como `null` en el MVP; no se lee ni publica `resolved_at`.
+## Checklist manual para el proyecto de pruebas en la nube
 
-### 6. Migraciones y proyecto de pruebas en la nube
+Antes de los comandos, crear un proyecto Supabase dedicado de pruebas y comparar su ref con el proyecto de producción `rsvtchefnydihokivaqg`. Si coincide o el proyecto no está vacío, detenerse. No ejecutar `db reset --linked`.
 
-- Las cinco migraciones están ordenadas para un proyecto Supabase vacío y no se han aplicado en ningún entorno. La revisión actual es estática; solo la aplicación en el proyecto de pruebas en la nube aportará evidencia de ejecución.
-- El ref de producción `rsvtchefnydihokivaqg` está bloqueado por el script. El proyecto de pruebas debe ser otro proyecto y Agus debe confirmar visualmente su ref antes de ejecutar comandos o pruebas.
-- `supabase/config.toml` todavía no existe. Agus ejecutará `npx.cmd supabase init` cuando el proyecto de pruebas esté acordado. Sigue abierta con Fran la decisión de versionar ese archivo; revisar `git status` después de `init` y no incluirlo hasta acordarlo.
-- El script de integración lee `SUPABASE_URL` y la clave publicable desde `.env.test.local`, exige `TEST_PROJECT_CONFIRMED=true`, rechaza el ref de producción y claves `service_role`/`sb_secret`, no crea cuentas por API, no imprime claves y solo corre al ejecutarse directamente. El archivo está ignorado por Git y no contiene valores en este cambio.
-- Las pruebas unitarias y estáticas no acreditan RLS, permisos efectivos de Storage, atomicidad ni concurrencia. Esas tareas siguen sin marcar hasta ejecutarlas en el proyecto de pruebas en la nube. No usar `db reset --linked` ni datos de producción.
+1. En la raíz del repositorio, ejecutar `npx.cmd supabase init`. Verificar que se creó `supabase/config.toml`, que no cambió ninguna migración y que el archivo no contiene secretos. Mantenerlo local con `Add-Content -LiteralPath .git/info/exclude -Value '/supabase/config.toml'`; verificar con `git check-ignore -v supabase/config.toml`.
+2. Ejecutar `npx.cmd supabase login`. Verificar que la CLI inició sesión con la cuenta de Agus; no copiar ni guardar el token.
+3. Ejecutar `npx.cmd supabase link --project-ref REF_PROYECTO_DE_PRUEBAS` sustituyendo el placeholder por el ref del panel. Antes de confirmar, comparar visualmente que el ref coincide con el proyecto de pruebas y es distinto de `rsvtchefnydihokivaqg`.
+4. Ejecutar `npx.cmd supabase migration list --linked`. Verificar que el proyecto remoto no tiene aplicadas estas migraciones y que las locales están en orden `20261023000001` a `20261023000005`; detenerse si hay historia inesperada.
+5. Ejecutar `npx.cmd supabase db push --dry-run --linked`. Verificar que el plan enumera únicamente las cinco migraciones anteriores en orden, sin seed ni migraciones de otros módulos.
+6. Solo si el ref y el dry run coinciden, ejecutar `npx.cmd supabase db push --linked`. Verificar que las cinco migraciones terminan sin error.
+7. Ejecutar otra vez `npx.cmd supabase migration list --linked`. Verificar que el remoto registra las cinco migraciones aplicadas en orden.
+8. En Supabase Studio → **Authentication → Users**, crear cuatro cuentas sintéticas con email confirmado y contraseñas independientes. No usar cuentas personales. La cuenta 4 debe estar fresca: la prueba de cuotas publica diez reportes persistentes y no los elimina.
+9. Completar localmente `.env.test.local` con los nombres `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` o `SUPABASE_ANON_KEY`, `TEST_PROJECT_CONFIRMED=true` y `REPORTS_TEST_USER_1_EMAIL`, `REPORTS_TEST_USER_1_PASSWORD` hasta `REPORTS_TEST_USER_4_EMAIL`, `REPORTS_TEST_USER_4_PASSWORD`. No guardar valores en Git ni compartirlos.
+10. Solo en ese proyecto dedicado, ejecutar `node scripts/integration/check-reports-cloud.mjs`. Verificar que todos los casos terminen en `OK`; el test de cuota crea diez reportes permanentes y una reejecución requiere una cuenta fresca o esperar 24 horas. Nunca apuntar el archivo de entorno a producción.
+11. En Studio, abrir **Security Advisor**, ejecutar el análisis y registrar hallazgo, objeto, severidad y resolución. Verificar RLS en tablas expuestas, grants de funciones `SECURITY DEFINER`, `search_path`, permisos de la vista y policies de Storage. La visibilidad pública de `reports-public` es esperada por D1; el bucket `reports-originals` debe permanecer privado y sin lectura anónima.
 
-## Checklist para aplicar y verificar en el proyecto de pruebas en la nube
+## Evidencia y estado
 
-Antes de iniciar, confirmar en el panel que el proyecto elegido es un proyecto separado de pruebas, está vacío y su ref no contiene `rsvtchefnydihokivaqg`. Si el ref o el estado no coinciden, detenerse.
-
-1. Desde la raíz del repositorio, ejecutar `npx.cmd supabase init`. Verificar que aparece `supabase/config.toml`, que no cambió ninguna migración y que no contiene secretos. Acordar con Fran si se versiona; no incluirlo en un commit antes de resolverlo.
-2. Ejecutar `npx.cmd supabase login`. Verificar que la CLI confirma la sesión de Agus. No copiar el token a archivos, logs compartidos ni commits.
-3. Ejecutar `npx.cmd supabase link --project-ref REF_DEL_PROYECTO_DE_PRUEBAS`. Verificar que el ref coincide con el proyecto de pruebas abierto en el panel y es distinto de `rsvtchefnydihokivaqg`.
-4. Ejecutar `npx.cmd supabase migration list --linked`. Verificar que el proyecto no registra estas migraciones y que las locales aparecen en orden `20261023000001` a `20261023000005`. Si el remoto tiene un historial inesperado, detenerse.
-5. Ejecutar `npx.cmd supabase db push --dry-run --linked`. Verificar que el plan contiene únicamente esas cinco migraciones, en orden, sin seed ni cambios de otros módulos. Si aparece otro cambio, detenerse.
-6. Tras confirmar que el proyecto está vacío y el dry run coincide, ejecutar `npx.cmd supabase db push --linked`. Verificar que la CLI aplica las cinco migraciones sin error. No agregar `--include-seed`.
-7. Ejecutar otra vez `npx.cmd supabase migration list --linked`. Verificar que las cinco versiones aparecen aplicadas y que no hay diferencias pendientes.
-8. En SQL Editor del proyecto de pruebas, verificar estructura y permisos:
-   ```sql
-   SELECT version
-   FROM supabase_migrations.schema_migrations
-   WHERE version IN ('20261023000001', '20261023000002', '20261023000003', '20261023000004', '20261023000005')
-   ORDER BY version;
-
-   SELECT c.relname, c.relrowsecurity
-   FROM pg_class AS c
-   JOIN pg_namespace AS n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'public'
-     AND c.relname IN ('reports', 'idempotency_keys', 'report_confirmations');
-
-   SELECT column_name
-   FROM information_schema.columns
-   WHERE table_schema = 'public' AND table_name = 'public_reports'
-   ORDER BY ordinal_position;
-   ```
-   Esperar cinco versiones y RLS activa en `reports`, `idempotency_keys` y `report_confirmations`. La vista debe incluir `photo_public_path`, metadatos de la copia, `confirmation_count`, `confirmation_threshold`, `street` y `street_number`; no debe incluir `user_id`, `storage_path`, `resolved` ni `resolved_at`. Revisar que `reports-originals` sea privado y `reports-public` público.
-9. En Supabase Studio, abrir **Authentication → Users** y crear cuatro cuentas sintéticas con email confirmado y contraseñas de prueba independientes. No usar cuentas personales ni datos reales. Copiar sus emails y contraseñas únicamente a `.env.test.local`, que Git ignora. Completar allí `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` (o `SUPABASE_ANON_KEY`) y `REPORTS_TEST_USER_1_EMAIL/PASSWORD` hasta `REPORTS_TEST_USER_4_EMAIL/PASSWORD` con valores del proyecto elegido.
-10. Después de volver a verificar el ref del panel y el URL en `.env.test.local`, abrir PowerShell y ejecutar `$env:TEST_PROJECT_CONFIRMED = 'true'` y luego `node scripts/integration/check-reports-cloud.mjs`. Verificar los resultados individuales; guardar errores sin incluir claves ni contraseñas. El script usa cuatro cuentas porque el umbral de 3 necesita autor y tres confirmadores distintos.
-11. Para el chequeo manual 5.8, abrir **Security Advisor** en el panel del proyecto de pruebas, ejecutar el análisis y registrar cada hallazgo con objeto y severidad. Revisar RLS desactivada en tablas expuestas, funciones `SECURITY DEFINER` sin `search_path` seguro o con grants amplios, políticas de Storage que permitan acceso a originales y el bucket público esperado `reports-public`. Confirmar que las advertencias esperadas por la copia pública se distinguen de fallas y que no hay exposición del bucket `reports-originals`.
-
-`npx.cmd supabase db push`, el SQL Editor y el script de integración apuntan únicamente al proyecto de pruebas en la nube; no ejecutar `npx.cmd supabase db reset --linked`.
-
-## Riesgos y compensaciones
-
-- **[Riesgo]** Una copia públicamente accesible se comparte por URL. **→ Mitigación:** solo se expone la copia derivada, saneada y sin ruta de usuario; mantener la decisión provisoria hasta revisión de Fran.
-- **[Riesgo]** Sin credencial de servidor no se puede enumerar ni borrar huérfanas con garantías. **→ Mitigación:** no usar SQL directo sobre `storage.objects`; dejar la limpieza pendiente y diseñar una Storage API segura.
-- **[Riesgo]** Límites de cuerpo en el hosting pueden rechazar fotos multipart válidas. **→ Mitigación:** acordar con Fran tamaño máximo de cliente compatible con 4 MiB de archivo más el resto del request y verificar el límite real del despliegue antes de integrar.
-- **[Riesgo]** Fixtures y clientes simulados no prueban RLS ni concurrencia. **→ Mitigación:** scripts con guardia del ref de pruebas y casos contra Auth, Postgres y Storage alojados; sin marcar evidencia que no se haya ejecutado.
-
-## Plan de migración y merge
-
-1. Revisar los cuatro artefactos y el estado real del código; mantener las cinco migraciones editables en su lugar mientras no haya evidencia de aplicación.
-2. Implementar y probar los bloques de esquema/RPC, servicios/fotos y rutas; ejecutar la integración contra el proyecto de pruebas únicamente después del checklist anterior.
-3. PR #3 (`add-report-address`) ya está integrado a `main`; esta rama usa directamente `Location.address` del contrato compartido.
-4. Integrar el PR de `feature/reports-backend` después de las revisiones de sus responsables. No hacer push ni merge desde este trabajo.
-
-## Decisiones abiertas
-
-### Fran (también llamado Francisco) — interfaz y mapas
-
-- Confirmar que `reports-public` con copias saneadas y URL pública satisface el consumo de lista/detalle y el tratamiento de caché.
-- Proponer `Photo.expiresAt` nullable mediante un PR separado desde `main`, con revisión de Agus, Valen y Fran. Las respuestas actuales de lista y detalle omiten el campo y los tests demuestran que el validador del contrato las rechaza; ninguna prueba las presenta como válidas.
-- Resolver el tratamiento de orientación con Fran: el saneador elimina EXIF sin rotar los píxeles; si el navegador no recomprime ni orienta la imagen antes de enviarla, puede mostrarse girada.
-- Definir un límite de reportes o claims por usuario. Hoy una cuenta autenticada puede crear muchos claims y subir hasta 4 MiB por objeto en cada uno; no hay cuota ni rate limit por usuario.
-- Confirmar el límite de tamaño del multipart desde cliente considerando el límite del hosting, y si el cliente comprimirá antes de enviar.
-- Confirmar que la dirección integrada por PR #3 se usa sin un adaptador adicional.
-- Definir con qué mecanismo autorizado se limpiarán huérfanas mediante Storage API; no se implementa en SQL.
-- Confirmar la política provisoria de retención de originales y copias.
-- Definir la acción de moderación para copias públicas de reportes ocultos o rechazados; la URL sigue accesible mientras el objeto exista.
-
-### Valen — visión
-
-- Confirmar que análisis de visión permanece en memoria y que el flujo de reportes no necesita persistir resultados ni metadatos de análisis. El backend no recibe ni almacena datos de visión en este cambio.
-
-### Revisión compartida de dirección
-
-- `docs/contracts.md` todavía pide revisión de Agus y Valen para la dirección. `Location.address` ya llegó a `main` con el PR #3 y este cambio lo consume sin modificar el contrato. El snapshot disponible de `.context/prs.json` para los PR #5 y #8 no incluye reseñas; no se toma como evidencia de esas revisiones.
-
-## Pedidos a otros módulos
-
-- **Fran / PR #3 (`add-report-address`):** PR #3 ya está integrado a `main`; revisar el consumo de `Location.address` en el backend. No editar `lib/contracts/**`, `docs/contracts.md` ni `package.json` desde este cambio.
-- **Fran / Storage:** revisar la decisión provisoria de lectura pública de copias saneadas y acordar consumo/cache, tamaño de request y limpieza por Storage API.
-- **Fran / configuración Supabase:** decidir si `supabase/config.toml`, generado por `npx supabase init`, se commitea en esta rama o se mantiene local. `db push` requiere que exista, pero no presupone que se versiona.
-- **Valen / visión:** confirmar el límite de datos en memoria, sin pedir cambios en `lib/vision/**` dentro de este cambio.
-- **Agus / seguridad de fotos públicas:** las políticas pueden vincular una carga a un claim propio `in_progress`, pero Postgres/Storage no pueden comprobar que el contenido público perdió sus metadatos. Como el RPC y Storage usan el rol `authenticated`, un cliente puede invocarlos directamente y omitir el saneamiento del handler. Acordar la amenaza aceptable y una forma de impedirlo antes de habilitar el bucket público; no hay una comprobación de bytes en estas migraciones.
-
-## Límites conocidos de publicación y moderación
-
-- La clave publicable permite que un cliente autenticado invoque Storage y las RPC directamente; `SECURITY DEFINER` no convierte esas llamadas en operaciones exclusivas del servidor. Las policies de Storage atan cada ruta al `report_id` reservado en una clave `in_progress` del mismo usuario. `publish_report` comprueba `auth.uid()`, propiedad y estado de la clave, coincidencia del hash recibido, rutas original/pública coherentes con el usuario, ID y MIME, existencia de ambos objetos, MIME/tamaño declarados en los metadatos de Storage y que el tamaño de la copia coincida con el argumento. Los `CHECK` de `reports` limitan título (5–120), descripción (10–1000), categoría, gravedad, estados MVP, latitud/longitud, calle (2–80 sin espacios exteriores), altura (1–99999 o nula), MIME de la copia, tamaño (1–4 MiB), conteo no negativo y umbral positivo.
-- La RPC compara el hash recibido con el guardado en el claim, pero no puede recalcularlo a partir de los campos y bytes originales. Esas comprobaciones tampoco leen los bytes del objeto: un cliente autenticado puede elegir el hash al reclamar, subir contenido que no coincida con el MIME declarado o una copia que conserve metadatos y después llamar directamente a `publish_report`. El saneamiento del handler no es una garantía frente a un cliente hostil. La metadata de Storage tampoco prueba la firma ni el contenido real de la imagen.
-- Si una moderación futura oculta o rechaza un reporte, quitarlo de la vista no revoca su URL pública. La copia permanece accesible hasta que se elimine mediante Storage API; definir el borrado y la invalidación de caché queda abierto con Fran. El MVP no implementa estados de ocultamiento o rechazo.
+`npm run lint`, `npx tsc --noEmit`, `npm run check:contracts`, `node scripts/check-reports.mjs`, `openspec validate implement-reports-backend --strict` y `git diff --check` cubren código, contratos, pruebas unitarias y declaraciones estáticas. Ninguna de esas verificaciones aplica SQL ni demuestra permisos, Auth, RLS, Storage o concurrencia en una base. Las tareas reales siguen sin marcar hasta correr el checklist.

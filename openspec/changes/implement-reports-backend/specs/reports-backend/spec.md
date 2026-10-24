@@ -2,128 +2,156 @@
 
 ## Purpose
 
-Permite publicar y consultar reportes ciudadanos con persistencia segura, fotos presentables sin metadatos, reintentos idempotentes y corroboraciones atómicas en la base de datos.
+Permitir publicar y consultar reportes ciudadanos con persistencia controlada, fotos derivadas sin metadatos, reintentos idempotentes y confirmaciones atómicas. Las pruebas de PostgreSQL, RLS y Storage quedan pendientes de un proyecto de pruebas en la nube.
 
 ## ADDED Requirements
 
-### Requirement: Publicación autenticada con foto segura y dirección
-El backend SHALL aceptar publicaciones multipart autenticadas con los campos revisados, una foto original válida y una clave de idempotencia. SHALL mantener la original privada y exponer únicamente una copia pública sin metadatos; la dirección SHALL incluir calle y número opcional. La compatibilidad completa del DTO queda pendiente mientras `Photo.expiresAt` sea obligatorio en el contrato compartido.
+### Requirement: Publicación autenticada y límite de carga
 
-#### Scenario: Publicación exitosa
-- **WHEN** una persona autenticada publica un reporte válido con una clave UUID nueva y una foto admitida
-- **THEN** el sistema guarda la original en almacenamiento privado y una copia saneada en almacenamiento público
-- **THEN** crea el reporte en estado `pending`, con la dirección y el `report_id` reservado para esa clave
-- **THEN** responde HTTP 201 con un DTO que incluye `location.address` y una URL pública de la copia saneada
+El backend SHALL aceptar en `POST /api/reports` una sesión autenticada, `Idempotency-Key`, el campo multipart `report` como cadena JSON y `image` como archivo. SHALL validar los campos revisados y la imagen JPEG, PNG o WebP antes de reclamar o publicar.
 
-#### Scenario: Solicitud sin clave válida
-- **WHEN** una publicación no tiene `Idempotency-Key` o contiene una clave mal formada
-- **THEN** el sistema responde HTTP 400 y no escribe en la base ni en Storage
+#### Scenario: Límite de tamaño declarado
 
-#### Scenario: Tipo de imagen inválido o formato no analizable
-- **WHEN** el contenido no coincide con un JPEG, PNG o WebP admitido, o no puede analizarse para quitar metadatos
-- **THEN** el sistema rechaza la publicación como error de validación y no publica el reporte
+- **WHEN** `Content-Length` supera `MAX_MULTIPART_BYTES`
+- **THEN** el handler responde HTTP 413 antes de leer el cuerpo o llamar a `request.formData()`
 
-#### Scenario: Fallo de Storage antes de persistir
-- **WHEN** Storage no puede guardar cualquiera de las dos copias antes de publicar el reporte
-- **THEN** el sistema no crea el reporte y responde con el error de disponibilidad correspondiente
+#### Scenario: Límite del archivo real
 
-#### Scenario: Error definitivo de base anterior al commit
-- **WHEN** la RPC de publicación devuelve un error definitivo antes de confirmar la transacción
-- **THEN** el sistema elimina los objetos subidos y marca la clave como fallida
+- **WHEN** el tamaño del archivo recibido supera `MAX_IMAGE_BYTES` (4 MiB)
+- **THEN** el servicio responde HTTP 413 antes de leer sus bytes, reclamar la clave o subir objetos
 
-#### Scenario: Resultado ambiguo por timeout
-- **WHEN** la solicitud pierde conexión o vence el tiempo de espera durante la publicación
-- **THEN** el sistema conserva los objetos y la clave sin marcar como fallida
-- **THEN** un reintento con la misma clave y el mismo contenido reutiliza el mismo `report_id` y resuelve si la publicación se confirmó
+#### Scenario: Publicación válida
 
-#### Scenario: Error posterior a una publicación confirmada
-- **WHEN** ocurre un error al reconstruir o devolver la respuesta después del commit
-- **THEN** el sistema conserva el reporte y ambas fotos, y no marca la clave como fallida
+- **WHEN** una persona autenticada envía un reporte JSON válido, una foto admisible y una clave nueva
+- **THEN** el backend vuelve a validar y sanear la imagen en TypeScript sin decodificar sus píxeles
+- **THEN** guarda la entrada recibida en `reports-originals` privado y la copia saneada en `reports-public`, con ruta `{report_id}.{ext}`
+- **THEN** invoca `publish_report`, que inserta el reporte `pending` con el ID reservado y completa la clave en una transacción
+- **THEN** la respuesta incluye dirección y URL pública de la copia; la propiedad `Photo.expiresAt` omitida permanece como desviación conocida del contrato
 
-### Requirement: Idempotencia durable de publicación
-El backend SHALL delimitar la idempotencia por usuario y clave, reservar un `report_id` al reclamarla y distinguir operaciones activas, completadas y fallidas.
+#### Scenario: JSON del reporte mal formado
+
+- **WHEN** el campo `report` contiene JSON inválido
+- **THEN** el backend responde HTTP 400 con el sobre de error del contrato
+- **THEN** no reclama una clave ni sube fotos
+
+#### Scenario: Error interno
+
+- **WHEN** Storage, SQL o el handler devuelve un error inesperado
+- **THEN** el mensaje HTTP no incluye rutas de Storage, identificadores de usuario ni nombres de funciones SQL
+
+### Requirement: Idempotencia durable y cuotas por cuenta
+
+El backend SHALL delimitar la clave por usuario autenticado, reservar y persistir un `report_id` en `claim_idempotency_key`, usar un lock fijo de tres minutos y serializar por usuario el conteo de cuotas. Los valores de cuota SHALL ser configurables en SQL, con valores iniciales de tres claims `in_progress` y diez reportes publicados por ventana móvil de 24 horas. La cuota diaria SHALL comprobarse también en `publish_report`.
 
 #### Scenario: Repetición de publicación completada
-- **WHEN** el mismo usuario reintenta una clave completada con el mismo contenido
-- **THEN** el sistema devuelve HTTP 200 con el reporte existente y la misma identidad de reporte
-- **THEN** no crea otro reporte ni otros objetos de Storage
 
-#### Scenario: Repetición concurrente durante el bloqueo
-- **WHEN** llega otro request con la misma clave mientras el primer request conserva el bloqueo de tres minutos
-- **THEN** el sistema responde HTTP 409 con `PUBLICATION_IN_PROGRESS` y `Retry-After`
+- **WHEN** la misma cuenta reintenta una clave completada con los mismos datos
+- **THEN** recibe el reporte existente con el mismo `report_id`, sin duplicar fila ni objetos
 
-#### Scenario: Reutilización de clave con contenido distinto
-- **WHEN** una clave existente se presenta con un hash de contenido diferente
-- **THEN** el sistema responde HTTP 409 con `IDEMPOTENCY_CONFLICT`
+#### Scenario: Cuarto claim activo
 
-### Requirement: Catálogo público de reportes MVP
-El catálogo público SHALL consultar una proyección que omita identidad del autor y rutas privadas, y solo SHALL incluir los estados MVP `pending` y `citizen-verification`. Los campos `photo_public_mime_type` y `photo_public_byte_size` describen la copia saneada y son públicos.
+- **WHEN** una cuenta ya tiene tres claims `in_progress` con lock vigente e intenta un cuarto
+- **THEN** el claim se rechaza con `PUBLICATION_IN_PROGRESS` (HTTP 409) y `Retry-After`
+- **THEN** no se reserva un ID para el claim rechazado ni se sube una foto
 
-#### Scenario: Consulta pública de reportes
-- **WHEN** una persona anónima lista reportes con filtros geográficos, de categoría o estado
-- **THEN** recibe páginas estables con cursor y DTOs que incluyen coordenadas, `address`, estado y datos efectivos de confirmación
-- **THEN** cada foto usa la URL pública de la copia saneada, accesible sin sesión
-- **THEN** la proyección no expone `user_id`, `storage_path` ni campos de una foto original
-- **THEN** expone `photo_public_path`, `photo_public_mime_type` y `photo_public_byte_size` de la copia saneada
+#### Scenario: Reporte 11 dentro de 24 horas
 
-#### Scenario: Exclusión de etapas fuera del MVP
-- **WHEN** una persona consulta el catálogo público
-- **THEN** solo se devuelven reportes `pending` o `citizen-verification`
-- **THEN** no se exponen reportes ocultos, rechazados ni etapas institucionales futuras
+- **WHEN** una cuenta ya publicó diez reportes en la ventana móvil de 24 horas e intenta reclamar el reporte 11
+- **THEN** el claim se rechaza con `PUBLICATION_IN_PROGRESS` (HTTP 409) y `Retry-After`
+- **THEN** `publish_report` vuelve a aplicar el límite antes de insertar por si el conteo cambió después del claim
 
-### Requirement: Confirmación ciudadana y transición atómica
-El backend SHALL aceptar confirmaciones autenticadas de personas distintas del autor, con una por cuenta y reporte, y SHALL mantener el conteo y la transición bajo control transaccional de la base.
+#### Scenario: Clave reutilizada con contenido distinto o lock activo
 
-#### Scenario: Confirmación válida
-- **WHEN** una persona autenticada distinta del autor confirma por primera vez un reporte `pending`
-- **THEN** la base registra una sola confirmación para esa cuenta y reporte
-- **THEN** devuelve el conteo y umbral efectivos, y cambia a `citizen-verification` cuando se alcanza el umbral del reporte
+- **WHEN** la clave tiene otro hash o sigue bloqueada para una publicación en curso
+- **THEN** la API responde `IDEMPOTENCY_CONFLICT` o `PUBLICATION_IN_PROGRESS`, según corresponda, con HTTP 409
 
-#### Scenario: El autor intenta confirmarse
-- **WHEN** el autor confirma su propio reporte
-- **THEN** el sistema responde con `AUTHOR_CANNOT_CONFIRM` y no inserta una confirmación
+#### Scenario: Resultado ambiguo o error posterior al commit
 
-#### Scenario: Repetición de una confirmación existente
-- **WHEN** una cuenta repite una confirmación que ya registró
-- **THEN** el sistema responde con `ALREADY_CONFIRMED` sin duplicar la fila, incluso si la etapa ya no admite nuevas confirmaciones
+- **WHEN** un timeout o error de red impide conocer el resultado del commit
+- **THEN** el backend conserva las fotos y no marca el claim como fallido para permitir el replay con la misma clave
+- **WHEN** el commit terminó, pero falla la lectura o preparación de la respuesta
+- **THEN** conserva reporte y fotos y no marca la clave como fallida
 
-#### Scenario: Nueva confirmación en una etapa no confirmable
-- **WHEN** una cuenta intenta agregar una confirmación nueva a una etapa no confirmable, incluida `resolved` si existiera en una evolución posterior
-- **THEN** el sistema responde con `REPORT_RESOLVED` y no inserta una fila
+#### Scenario: Error definitivo anterior al commit
 
-#### Scenario: Confirmaciones concurrentes alcanzan el umbral
-- **WHEN** tres cuentas válidas confirman concurrentemente un reporte con umbral efectivo 3
-- **THEN** la base serializa el conteo, registra una fila por cuenta y transiciona el reporte una sola vez
+- **WHEN** una RPC confirma un rechazo definitivo anterior al commit
+- **THEN** el backend elimina las fotos subidas y luego marca la clave como fallida
+
+### Requirement: Copias públicas saneadas y catálogo MVP
+
+El catálogo SHALL leer solo `public_reports`, con estados `pending` y `citizen-verification`. SHALL exponer dirección y metadatos de la copia pública, nunca la identidad del autor ni la ruta o los metadatos de la original.
+
+#### Scenario: Lectura pública paginada
+
+- **WHEN** una persona solicita reportes anónimos con filtros válidos
+- **THEN** recibe orden estable, cursor y dirección `location.address`
+- **THEN** `photo.url` se deriva de `photo_public_path` mediante `getPublicUrl`; la copia es accesible sin sesión
+- **THEN** la vista expone `photo_public_path`, `photo_public_mime_type`, `photo_public_byte_size`, conteo y umbral efectivos
+- **THEN** no expone `user_id`, `storage_path`, metadatos de la original, `resolved` ni `resolved_at`
+
+#### Scenario: Parámetros GET inválidos
+
+- **WHEN** la consulta de lista repite una clave, incluye una clave desconocida o contiene un valor parcial/mal formado
+- **THEN** responde con el sobre de error y el código HTTP del validador estricto del contrato
+
+#### Scenario: DTO de base inválido
+
+- **WHEN** la fila mapeada para lista o detalle no cumple otra regla del DTO
+- **THEN** el servicio responde con error interno genérico sin filtrar el error de base
+- **THEN** el validador compartido se ejecuta sobre una copia temporal que añade una fecha sintácticamente válida para comprobar el resto del DTO
+- **THEN** esa fecha temporal nunca se añade a la respuesta real
 
 ### Requirement: Desviación conocida de `Photo.expiresAt`
-El cambio SHALL documentar que el contrato compartido exige `Photo.expiresAt`, aunque las URLs de `getPublicUrl` no vencen. El backend SHALL NOT inventar una fecha ni afirmar que lista y detalle validan el contrato completo mientras no se apruebe un PR separado del contrato.
 
-#### Scenario: Respuesta con URL pública sin vencimiento
-- **WHEN** lista o detalle construye una foto desde `photo_public_path`
-- **THEN** el DTO omite `expiresAt` y la prueba de contrato conserva el error de validación de ese campo
-- **THEN** la compatibilidad completa queda pendiente de un PR separado desde `main`, revisado por Agus, Valen y Fran
+El cambio SHALL respetar el contrato actual, que requiere `Photo.expiresAt` con fecha UTC. El backend SHALL NOT inventar un vencimiento para una URL pública que no vence ni afirmar que lista o detalle pasan el validador completo.
 
-### Requirement: Límites de seguridad de base y almacenamiento
-La base SHALL aplicar permisos y RLS; las mutaciones de reportes e idempotencia SHALL realizarse solo mediante RPC autenticadas, y los objetos originales SHALL permanecer privados.
+#### Scenario: Respuesta pública sin vencimiento
 
-#### Scenario: Lectura directa de tabla interna
-- **WHEN** una clave publicable consulta `reports` directamente como `anon` o `authenticated`
-- **THEN** no obtiene filas ni columnas de la tabla
-- **THEN** puede leer únicamente las columnas otorgadas de `public_reports`
+- **WHEN** lista o detalle crea el DTO desde `photo_public_path`
+- **THEN** omite `expiresAt` y las pruebas comprueban que `validateReport` rechaza la respuesta real por ese campo
+- **THEN** el cambio nullable queda diferido a un PR independiente desde `main`, con revisión de Agus, Valen y Fran
 
-#### Scenario: Inserción directa de reporte
-- **WHEN** un cliente autenticado intenta insertar directamente en `reports`
-- **THEN** PostgreSQL rechaza la operación
+### Requirement: Confirmaciones ciudadanas atómicas
 
-#### Scenario: Publicación RPC sin sesión
-- **WHEN** un cliente anónimo invoca la RPC de publicación o de reclamo de idempotencia
-- **THEN** la base rechaza la llamada por falta de sesión autenticada
+La base SHALL determinar la cuenta mediante `auth.uid()`, impedir que el autor confirme su reporte, aceptar solo una confirmación por usuario/reporte y mantener el conteo y la transición bajo lock de la fila. El umbral SHALL leerse de la fila `reports.confirmation_threshold`.
 
-#### Scenario: Lectura de confirmaciones de otra cuenta
-- **WHEN** una cuenta consulta confirmaciones de otra cuenta
-- **THEN** RLS no revela esas filas
+#### Scenario: Primera confirmación
 
-#### Scenario: Acceso a fotos
-- **WHEN** una persona anónima solicita la URL de una foto pública
-- **THEN** solo accede a la copia saneada
-- **THEN** la original privada no es accesible sin autorización
+- **WHEN** una cuenta distinta del autor confirma por primera vez un reporte `pending` o `citizen-verification`
+- **THEN** la base registra como máximo una fila por usuario y reporte y devuelve conteo y umbral reales
+- **THEN** al alcanzar el umbral de esa fila transiciona a `citizen-verification`
+
+#### Scenario: Confirmación repetida o etapa no confirmable
+
+- **WHEN** la cuenta ya había confirmado
+- **THEN** recibe `ALREADY_CONFIRMED` sin una fila nueva, con prioridad frente al rechazo por etapa cerrada
+- **WHEN** no existía confirmación y el reporte ya no admite confirmaciones
+- **THEN** recibe `REPORT_RESOLVED` y no se inserta una fila
+
+#### Scenario: Consulta de la confirmación propia
+
+- **WHEN** una cuenta autenticada consulta `GET .../confirmations/me`
+- **THEN** el handler usa `get_my_confirmation` y devuelve confirmación, conteo y umbral de esa fila sin leer tablas cerradas desde el cliente
+
+### Requirement: Privilegios, RLS y límites de Storage
+
+Las tablas públicas creadas SHALL activar RLS. Las funciones `SECURITY DEFINER` SHALL fijar `search_path` vacío, revocar la ejecución por defecto a `PUBLIC` y `anon`, y concederla solo a `authenticated` cuando corresponda. No SHALL haber escritura directa de clientes en `reports`.
+
+#### Scenario: Lectura o escritura directa de tablas
+
+- **WHEN** `anon` o `authenticated` accede directamente a `reports`
+- **THEN** no recibe filas ni permisos directos; la lectura pública se concede solo sobre la vista
+- **WHEN** una cuenta intenta insertar directamente un reporte o una confirmación
+- **THEN** la operación es rechazada
+
+#### Scenario: Rutas de Storage ligadas al claim
+
+- **WHEN** una cuenta sube o elimina un objeto de reportes
+- **THEN** la policy y helper vinculan ruta, `report_id` reservado, clave `in_progress` vigente y `auth.uid()` de la misma cuenta
+- **THEN** la original permanece privada y la copia pública no contiene el ID de usuario en su ruta
+
+#### Scenario: Límites de verificación en SQL
+
+- **WHEN** una cuenta autenticada invoca directamente Storage o una RPC con clave publicable
+- **THEN** las comprobaciones SQL validan identidad, ownership, claim, estado, rutas, hash guardado, metadatos declarados, cuotas y restricciones `CHECK`
+- **THEN** se reconoce que SQL no verifica la firma de los bytes ni que la copia perdió metadatos; el handler sí vuelve a sanear, pero no es una garantía frente a clientes hostiles

@@ -3,7 +3,7 @@ import { GoogleGenAI, type GoogleGenAIOptions } from "@google/genai";
 import { VisionError } from "./errors";
 import { createGroqVisionProvider } from "./groq";
 import { createOpenAIVisionProvider } from "./openai";
-import { createFallbackVisionProvider, type VisionFallbackStep } from "./router";
+import { createFallbackVisionProvider, type VisionFallbackStep, type VisionAttemptEvent } from "./router";
 import type { VisionDiagnostic } from "./diagnostics";
 import { createGeminiFetch, createGeminiProvider, createSimulatedProvider, type Generate, type VisionProvider } from "./provider";
 
@@ -27,8 +27,13 @@ export function selectLocalVisionProvider(
   if (router) {
     const groqKey = env.GROQ_API_KEY?.trim();
     if (!groqKey) { diagnostic?.event("configuration", "key_missing", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }
+    // Esta simulación solo existe en desarrollo local y no llama a Groq.
+    const forcedGroqFailure = env.VISION_LOCAL_TEST_GROQ_FAILURE === "1";
+    const groqProvider: VisionProvider = forcedGroqFailure
+      ? { async analyze() { throw new VisionError("ANALYSIS_UNAVAILABLE"); } }
+      : createGroqVisionProvider(groqKey);
     const steps: VisionFallbackStep[] = [
-      { name: "groq", provider: createGroqVisionProvider(groqKey), limitMs: 5_000 },
+      { name: "groq", provider: groqProvider, limitMs: 5_000 },
     ];
     const geminiKey = env.GEMINI_API_KEY?.trim();
     if (geminiKey) steps.push({ name: "gemini", provider: buildGeminiProvider(geminiKey, env.GEMINI_MODEL ?? "gemini-3.8-flash", createClient, diagnostic), limitMs: 9_000 });
@@ -37,7 +42,20 @@ export function selectLocalVisionProvider(
       if (!openaiKey) { diagnostic?.event("configuration", "key_missing", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }
       steps.push({ name: "openai", provider: createOpenAIVisionProvider(openaiKey), limitMs: 4_000 });
     }
-    return createFallbackVisionProvider(steps);
+    const reporter = env.VISION_LOCAL_ROUTER_TRACE === "1"
+      ? (event: VisionAttemptEvent) => {
+        // Campos cerrados: nunca se imprimen prompts, fotos, respuestas ni credenciales.
+        const record = {
+          source: "vision-router-local",
+          provider: event.provider,
+          outcome: event.outcome,
+          durationMs: event.durationMs,
+          ...(forcedGroqFailure && event.provider === "groq" ? { testFailure: true } : {}),
+        };
+        try { console.info(JSON.stringify(record)); } catch {}
+      }
+      : undefined;
+    return createFallbackVisionProvider(steps, reporter);
   }
 
   const apiKey = env.GEMINI_API_KEY?.trim();

@@ -21,4 +21,4 @@
 ## 3. Verificación integral
 
 - [x] 3.1 Correr `npm.cmd run lint`, `npm.cmd exec -- tsc --noEmit --incremental false`, `node app/components/reports/check-report-form.mjs`, `node app/components/map/check-map-data.mjs`, `npm.cmd run build`, `openspec.cmd validate add-map-session-menu --strict` y `git diff --check`. Verificar que todo pasa y que `git status` no muestra cambios en `app/auth-buttons.tsx`, `app/auth/`, `utils/supabase/` ni `lib/contracts/`.
-- [ ] 3.2 Probar en un celular real sobre la preview: cerrar sesión desde el menú, entrar con Google desde el menú y volver a `/mapa` con el email visible. Verificar con la prueba de Fran.
+- [x] 3.2 Probar en un celular real sobre la preview: cerrar sesión desde el menú, entrar con Google desde el menú y volver a `/mapa` con el email visible. Verificar con la prueba de Fran.

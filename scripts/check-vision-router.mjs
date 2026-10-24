@@ -27,8 +27,11 @@ try {
   } else {
     const emitted = program.emit();
     if (emitted.emitSkipped) throw new Error("Router tests could not be compiled.");
+    // preview.ts y groq.ts importan "server-only": se resuelve como en el servidor de Next.
     const result = spawnSync(process.execPath,
-      ["--test", join(output, "tests/vision-router.test.js")], { stdio: "inherit", cwd: root });
+      ["--conditions=react-server", "--test", join(output, "tests/vision-router.test.js")], {
+        stdio: "inherit", cwd: root, env: { ...process.env, NODE_PATH: join(root, "node_modules") },
+      });
     if (result.error) throw result.error;
     process.exitCode = result.status ?? 1;
   }

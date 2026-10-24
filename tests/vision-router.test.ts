@@ -237,3 +237,36 @@ test("Production sigue usando RPC de cupos y falla cerrado si falla Supabase", a
   await assert.rejects(Promise.resolve(failed.acquire(approved)),
     (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
 });
+
+test("Groq informa solo el status HTTP de un rechazo y responde ANALYSIS_UNAVAILABLE", async () => {
+  const { createGroqVisionProvider } = await import("../lib/vision/groq");
+  const statuses: number[] = [];
+  const transport = (async () => new Response("{}", { status: 429 })) as typeof fetch;
+  const provider = createGroqVisionProvider("gsk_prueba", transport, (status) => statuses.push(status));
+  await assert.rejects(provider.analyze(image, new AbortController().signal, 1000),
+    (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
+  assert.deepEqual(statuses, [429]);
+});
+
+test("un observador que falla no cambia el error de Groq", async () => {
+  const { createGroqVisionProvider } = await import("../lib/vision/groq");
+  const transport = (async () => new Response("{}", { status: 401 })) as typeof fetch;
+  const provider = createGroqVisionProvider("gsk_prueba", transport, () => { throw new Error("log caído"); });
+  await assert.rejects(provider.analyze(image, new AbortController().signal, 1000),
+    (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
+});
+
+test("los logs de la IA desplegada no incluyen imagen, clave ni texto", async () => {
+  const { visionLogReporters, GROQ_ATTEMPT_MS } = await import("../lib/vision/preview");
+  const lines: string[] = [];
+  const reporters = visionLogReporters((line) => lines.push(line));
+  reporters.groqFailure(401);
+  reporters.attempt({ provider: "groq", outcome: "timeout", durationMs: 12000 });
+  reporters.attempt({ provider: "groq", outcome: "success", durationMs: 3000 });
+  assert.deepEqual(lines.map((line) => JSON.parse(line)), [
+    { source: "vision", provider: "groq", outcome: "provider_http", status: 401 },
+    { source: "vision", provider: "groq", outcome: "timeout", durationMs: 12000 },
+  ]);
+  assert.ok(lines.every((line) => !/gsk_|base64|data:image/.test(line)));
+  assert.equal(GROQ_ATTEMPT_MS, 12_000);
+});

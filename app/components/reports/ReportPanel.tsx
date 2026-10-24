@@ -11,6 +11,7 @@ import { groupFieldErrors, randomUuid, type FormField } from "./form-helpers";
 import { LoginPrompt } from "./LoginPrompt";
 import { PhotoField } from "./PhotoField";
 import { VisionAssist } from "./VisionAssist";
+import { changesFromVisionSuggestion } from "./vision-suggestion";
 import { toReportFields, type Draft, type DraftChanges } from "./report-draft";
 import { publishReport, type SimulatedFailure } from "./report-publisher";
 
@@ -81,23 +82,18 @@ export function ReportPanel({
   const latestDraft = useRef(draft);
   latestDraft.current = draft;
 
-  const applyVisionSuggestion = (suggestion: ImageSuggestion, photo: File) => {
-    const current = latestDraft.current;
-    if (current.photo !== photo || publishing.current) return;
-    // Nunca reemplaza datos ingresados por el vecino y no toca dirección/ubicación.
-    const changes: DraftChanges = {};
-    if (!current.title.trim() && suggestion.title) changes.title = suggestion.title;
-    if (!current.description.trim() && suggestion.description) changes.description = suggestion.description;
-    if (!current.categoryId && suggestion.categoryId) changes.categoryId = suggestion.categoryId;
-    if (!current.severity && suggestion.severity) changes.severity = suggestion.severity;
-    if (Object.keys(changes).length) set(changes);
-  };
-
   // Al corregir un campo se borra su error, para no dejar a la vista un mensaje que ya no aplica.
   const set = (changes: DraftChanges) => {
     onChange(changes);
     const touched = new Set(Object.keys(changes).map((key) => DRAFT_FIELD[key as keyof Draft]).filter(Boolean));
     if (touched.size) setErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !touched.has(field as FormField))));
+  };
+
+  const applyVisionSuggestion = (suggestion: ImageSuggestion, photo: File) => {
+    const current = latestDraft.current;
+    if (current.photo !== photo || publishing.current) return;
+    const changes = changesFromVisionSuggestion(current, suggestion);
+    if (Object.keys(changes).length > 0) set(changes);
   };
 
   const submit = async () => {

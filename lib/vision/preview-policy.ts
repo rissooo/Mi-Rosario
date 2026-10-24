@@ -21,8 +21,15 @@ export function previewVisionConfig(env: Env): {
       !env.GROQ_API_KEY?.trim() || !origins.every(value => {
         try {
           const url = new URL(value);
+          // WHATWG URL acepta '*' como parte de hostname: rechazarlo expresamente.
+          const hostname = url.hostname;
+          const labels = hostname.split(".");
+          const validHostname = labels.length >= 2 && labels.every(label =>
+            /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+          );
           return url.protocol === "https:" && url.origin === value &&
-            !url.username && !url.password && !url.search && !url.hash;
+            validHostname && !url.port && !url.username && !url.password &&
+            !url.search && !url.hash;
         } catch { return false; }
       }) || !userIds.every(value => UUID.test(value))) {
     return { enabled: false, allowedOrigins: [], allowedUserIds: new Set() };

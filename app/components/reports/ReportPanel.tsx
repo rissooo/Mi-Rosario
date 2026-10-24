@@ -79,8 +79,6 @@ export function ReportPanel({
   const [submission, setSubmission] = useState<Submission>({ state: "editing" });
   const [errors, setErrors] = useState<Errors>({});
   const publishing = useRef(false);
-  const latestDraft = useRef(draft);
-  latestDraft.current = draft;
 
   // Al corregir un campo se borra su error, para no dejar a la vista un mensaje que ya no aplica.
   const set = (changes: DraftChanges) => {
@@ -90,7 +88,7 @@ export function ReportPanel({
   };
 
   const applyVisionSuggestion = (suggestion: ImageSuggestion, photo: File) => {
-    const current = latestDraft.current;
+    const current = draft;
     if (current.photo !== photo || publishing.current) return;
     const changes = changesFromVisionSuggestion(current, suggestion);
     if (Object.keys(changes).length > 0) set(changes);

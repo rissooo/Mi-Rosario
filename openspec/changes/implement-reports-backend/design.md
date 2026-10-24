@@ -99,6 +99,18 @@ Antes de los comandos, crear un proyecto Supabase dedicado de pruebas y comparar
 10. Solo en ese proyecto dedicado, ejecutar `node scripts/integration/check-reports-cloud.mjs`. Verificar que todos los casos terminen en `OK`; el test de cuota crea diez reportes permanentes y una reejecución requiere una cuenta fresca o esperar 24 horas. Nunca apuntar el archivo de entorno a producción.
 11. En Studio, abrir **Security Advisor**, ejecutar el análisis y registrar hallazgo, objeto, severidad y resolución. Verificar RLS en tablas expuestas, grants de funciones `SECURITY DEFINER`, `search_path`, permisos de la vista y policies de Storage. La visibilidad pública de `reports-public` es esperada por D1; el bucket `reports-originals` debe permanecer privado y sin lectura anónima.
 
+## Security Advisor (proyecto de pruebas, 24/10/2026)
+
+Salida de `supabase db advisors --linked --type all --level info` sobre `mpsdqlblyuuyjhfddhqj`:
+
+| Nivel | Hallazgo | Objeto | Resolución |
+| --- | --- | --- | --- |
+| ERROR | `security_definer_view` | `public.public_reports` | Intencional por ahora: `reports` no da permisos a clientes y la vista proyecta solo columnas públicas y etapas MVP. Pendiente decidir antes de producción si se pasa a `security_invoker = true` con `GRANT SELECT` por columnas y una policy de lectura en `reports`. |
+| WARN | `authenticated_security_definer_function_executable` | `claim_idempotency_key`, `publish_report`, `fail_idempotency_key`, `confirm_report`, `get_my_confirmation`, `admit_vision_analysis` | Intencional: son la API de las mutaciones; cada una obtiene la cuenta con `auth.uid()`, fija `search_path` vacío y revoca `PUBLIC`/`anon`. |
+| WARN | `auth_leaked_password_protection` | Auth | No aplica al flujo actual (login con Google); es una opción del plan pago. |
+| INFO | `rls_enabled_no_policy` | `reports`, `idempotency_keys`, `report_backend_limits`, `vision_daily_quota` | Intencional: RLS sin policies deniega todo acceso directo; se accede por la vista o por RPC. |
+| INFO | `unused_index` | seis índices de `reports`, `report_confirmations` e `idempotency_keys` | Esperable en una base recién creada con pocas filas; revisar con uso real. |
+
 ## Evidencia y estado
 
 `npm run lint`, `npx tsc --noEmit`, `npm run check:contracts`, `node scripts/check-reports.mjs`, `openspec validate implement-reports-backend --strict` y `git diff --check` cubren código, contratos, pruebas unitarias y declaraciones estáticas. Ninguna de esas verificaciones aplica SQL ni demuestra permisos, Auth, RLS, Storage o concurrencia en una base. Las tareas reales siguen sin marcar hasta correr el checklist.

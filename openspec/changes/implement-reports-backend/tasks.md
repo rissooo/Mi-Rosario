@@ -33,25 +33,25 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 ## 4. Rutas y confirmaciones
 
 - [ ] 4.1 Verificar contra base real `confirm_report`: umbral de la fila, lock, unicidad, estados y prioridad de `ALREADY_CONFIRMED` frente a `REPORT_RESOLVED`. La simulación no demuestra SQL ni atomicidad.
-- [ ] 4.2 Verificar contra base real RLS, `REVOKE`/`GRANT`, vista pública e inserción directa rechazada.
+- [x] 4.2 Verificar contra base real RLS, `REVOKE`/`GRANT`, vista pública e inserción directa rechazada.
 - [x] 4.3 Parsear GET con el validador estricto: rechazar duplicados, claves desconocidas y valores parciales con el sobre del contrato. Evidencia unitaria en `tests/list-query.test.ts`.
 - [x] 4.4 Cubrir con simulación el mapeo de `confirm_report` y `get_my_confirmation`, incluidos conteo y umbral reales. No demuestra SQL ni atomicidad.
 - [x] 4.5 Mantener visible la desviación de `Photo.expiresAt`: lista/detalle omiten el campo y el validador compartido rechaza el DTO real. No se inventa fecha ni se cambia el contrato.
 
 ## 5. Proyecto de pruebas en la nube — requiere base real
 
-- [ ] 5.0 Crear/configurar el proyecto de pruebas, comprobar su ref frente a producción, revisar migraciones y aplicarlas en orden siguiendo el checklist exacto de `design.md`. Ningún comando de Supabase CLI se ejecutó en este cambio.
-- [ ] 5.1 Comprobar con clave publicable que no se lee `reports` ni `user_id`, y que solo se consulta la vista pública.
-- [ ] 5.2 Comprobar con dos cuentas que RLS oculta las confirmaciones de otra persona.
-- [ ] 5.3 Comprobar rechazo de INSERT directo en `reports` y `report_confirmations`, publicación RPC autenticada y rechazo sin sesión.
-- [ ] 5.4 Probar confirmaciones concurrentes de una cuenta y una sola fila.
-- [ ] 5.5 Probar una autora y tres confirmadoras concurrentes, tres filas y una sola transición a `citizen-verification`.
-- [ ] 5.6 Probar rechazo de `confirm_report` sin sesión.
-- [ ] 5.7 Probar claim concurrente/replay, acceso anónimo a la copia pública frente al original privado y rechazo de subidas o borrados directos de un vecino en Storage.
-- [ ] 5.8 Revisar Security Advisor y registrar hallazgos, objetos, severidad y resolución según `design.md`.
+- [x] 5.0 Crear/configurar el proyecto de pruebas, comprobar su ref frente a producción, revisar migraciones y aplicarlas en orden siguiendo el checklist exacto de `design.md`. Ningún comando de Supabase CLI se ejecutó en este cambio.
+- [x] 5.1 Comprobar con clave publicable que no se lee `reports` ni `user_id`, y que solo se consulta la vista pública.
+- [x] 5.2 Comprobar con dos cuentas que RLS oculta las confirmaciones de otra persona.
+- [x] 5.3 Comprobar rechazo de INSERT directo en `reports` y `report_confirmations`, publicación RPC autenticada y rechazo sin sesión.
+- [x] 5.4 Probar confirmaciones concurrentes de una cuenta y una sola fila.
+- [x] 5.5 Probar una autora y tres confirmadoras concurrentes, tres filas y una sola transición a `citizen-verification`.
+- [x] 5.6 Probar rechazo de `confirm_report` sin sesión.
+- [x] 5.7 Probar claim concurrente/replay, acceso anónimo a la copia pública frente al original privado y rechazo de subidas o borrados directos de un vecino en Storage.
+- [x] 5.8 Revisar Security Advisor y registrar hallazgos, objetos, severidad y resolución según `design.md`.
 - [x] 5.9 Preparar `scripts/integration/check-reports-cloud.mjs` con guardias de producción/confirmación/claves, sin creación de cuentas ni impresión de credenciales. Incluye los casos del cuarto claim y reporte 11. La inspección y `node --check` son solo evidencia estática; no se conectó a una base.
 - [x] 5.10 Probar estáticamente firmas RPC, `SECURITY DEFINER`, `search_path`, grants, RLS, vistas, policies y orden de migraciones en `tests/migrations-static.test.mjs`.
-- [ ] 5.11 Ejecutar el script contra una base de pruebas en la nube y verificar las cuotas de tres claims y diez reportes; el caso diario crea diez filas persistentes y requiere una cuenta de prueba fresca o una ventana de 24 horas nueva.
+- [x] 5.11 Ejecutar el script contra una base de pruebas en la nube y verificar las cuotas de tres claims y diez reportes; el caso diario crea diez filas persistentes y requiere una cuenta de prueba fresca o una ventana de 24 horas nueva.
 
 ## Revisiones y cambios diferidos
 
@@ -66,4 +66,9 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 
 - **Unitaria con simulación:** `node scripts/check-reports.mjs` verifica contratos, servicios, errores, cuotas simuladas, idempotencia, imágenes y sanitización. No ejecuta SQL.
 - **Estática:** `tests/migrations-static.test.mjs` revisa firmas RPC, funciones y permisos, RLS, vista, policies, orden y cuotas declaradas. No prueba que PostgreSQL acepte el SQL.
-- **Contra base real:** 4.1, 4.2 y 5.0–5.8/5.11 siguen sin marcar. Las cinco migraciones no se aplicaron en ningún entorno y el script cloud no se ejecutó.
+- **Contra base real (24/10/2026, proyecto de pruebas `mpsdqlblyuuyjhfddhqj`, distinto de producción):**
+  - `supabase db push --linked` aplicó las seis migraciones (cinco de reportes y `vision_quota`) sin errores; `migration list` las muestra aplicadas en orden.
+  - `scripts/integration/check-reports-cloud.mjs` (con Node 23: `@supabase/supabase-js` necesita WebSocket nativo, que Node 20 no tiene) terminó con los 13 casos en `OK`: lectura directa de `reports` denegada a anon; publicación RPC autenticada y rechazo sin sesión; INSERT directo en `reports` y `report_confirmations` rechazado; RLS oculta confirmaciones ajenas; dos confirmaciones concurrentes de una cuenta dejan una fila; tres cuentas concurrentes llevan el reporte a `citizen-verification` con conteo 3; un vecino no puede subir ni borrar fotos directo en Storage; `confirm_report` sin sesión rechazado; claim concurrente con un solo claim activo; cuarto claim simultáneo rechazado; reporte 11 de la ventana de 24 horas rechazado; replay tras commit recupera el mismo reporte; copia pública legible sin sesión y original privada.
+  - Lectura anónima de `public_reports`: 14 filas con `created_at`, `updated_at` y `corroborated_at` en formato UTC con milisegundos y `Z`; paginar de a 3 con el filtro de cursor entre comillas recorre las 14 filas sin repetir y en el mismo orden.
+  - `supabase db advisors --linked`: hallazgos registrados en `design.md` (sección "Security Advisor").
+- **4.1 sigue sin marcar:** la base real confirmó lock, unicidad, conteo y transición con el umbral de la fila, pero la prioridad de `ALREADY_CONFIRMED` frente a `REPORT_RESOLVED` no se puede ejercitar: el `CHECK` de `reports.status` no admite `resolved` en el MVP.

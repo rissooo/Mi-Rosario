@@ -5,6 +5,8 @@ import { createGroqVisionProvider } from "./groq";
 import { createOpenAIVisionProvider } from "./openai";
 import { createFallbackVisionProvider, type VisionFallbackStep } from "./router";
 
+type Env = Readonly<Record<string, string | undefined>>;
+
 /** El flag de OpenAI en local NO autoriza gastos en Vercel. */
 export function previewVisionProvider(env: Env): VisionProvider {
   const key = env.GROQ_API_KEY?.trim();

@@ -32,7 +32,7 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 
 ## 4. Rutas y confirmaciones
 
-- [ ] 4.1 Verificar contra base real `confirm_report`: umbral de la fila, lock, unicidad, estados y prioridad de `ALREADY_CONFIRMED` frente a `REPORT_RESOLVED`. La simulación no demuestra SQL ni atomicidad.
+- [x] 4.1 Verificar contra base real `confirm_report`: umbral de la fila, lock, unicidad, estados y prioridad de `ALREADY_CONFIRMED` frente a `REPORT_RESOLVED`. La simulación no demuestra SQL ni atomicidad. Cumplida el 24/10/2026 por decisión de Fran: la base real verificó umbral de la fila, lock, unicidad y la transición única; la prioridad frente a `REPORT_RESOLVED` queda para el change institucional, cuando exista el estado `resolved`.
 - [x] 4.2 Verificar contra base real RLS, `REVOKE`/`GRANT`, vista pública e inserción directa rechazada.
 - [x] 4.3 Parsear GET con el validador estricto: rechazar duplicados, claves desconocidas y valores parciales con el sobre del contrato. Evidencia unitaria en `tests/list-query.test.ts`.
 - [x] 4.4 Cubrir con simulación el mapeo de `confirm_report` y `get_my_confirmation`, incluidos conteo y umbral reales. No demuestra SQL ni atomicidad.
@@ -55,12 +55,12 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 
 ## Revisiones y cambios diferidos
 
-- [ ] Revisar con Agus y Valen la dirección, como requiere `docs/contracts.md`; el historial disponible no acredita ambas reseñas.
+- [x] Revisar con Agus y Valen la dirección, como requiere `docs/contracts.md`; el historial disponible no acredita ambas reseñas. Dada por revisada el 24/10/2026 por decisión de Fran (el equipo trabaja en la misma compu); el backend consume `Location.address` sin modificar el contrato.
 - [ ] Fran debe conectar `app/components/reports/report-publisher.ts` con el multipart acordado (`report` JSON, `image`, `Idempotency-Key`) en un cambio de interfaz.
 - [ ] Fran debe proponer `Photo.expiresAt` nullable en un PR aparte desde `main`, con revisión de Agus, Valen y Fran.
 - [ ] Fran debe decidir con Agus y Valen si se agrega un código contractual específico para cuotas; hoy se usa `PUBLICATION_IN_PROGRESS`.
-- [ ] Confirmar con Fran los defaults provisorios D1–D8 de `design.md`.
-- [ ] Confirmar con Valen que el backend no persiste datos ni fotos del análisis Gemini.
+- [x] Confirmar con Fran los defaults provisorios D1–D8 de `design.md`. Confirmados el 24/10/2026: D1 con subidas solo del servidor, D8 versionando `config.toml` y D3, D4, D6 y D7 sin cambios; D2 y D5 siguen en el change de contrato.
+- [x] Confirmar con Valen que el backend no persiste datos ni fotos del análisis Gemini. Confirmado el 24/10/2026 por decisión de Fran, con evidencia de código: `lib/reports/`, `app/api/reports/` y las migraciones de reportes no referencian visión ni Gemini, `app/api/vision/` no importa reportes, `vision_daily_quota` guarda solo contadores y el multipart lleva solo `report` revisado por el vecino e `image`.
 
 ## Evidencia disponible
 
@@ -72,4 +72,4 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
   - Lectura anónima de `public_reports`: 14 filas con `created_at`, `updated_at` y `corroborated_at` en formato UTC con milisegundos y `Z`; paginar de a 3 con el filtro de cursor entre comillas recorre las 14 filas sin repetir y en el mismo orden.
   - `supabase db advisors --linked`: hallazgos registrados en `design.md` (sección "Security Advisor").
 - **Vista `security_invoker` (migración `20261024000002`):** aplicada en la base de pruebas. Lectura anónima y con sesión: `user_id`, `storage_path`, `resolved_at` y `*` de `reports` devuelven 42501; las columnas públicas y `public_reports` (17 filas) se leen; insertar sigue rechazado. En la segunda corrida del script pasaron los nueve casos hasta el claim concurrente; la cuota del cuarto claim falló como se esperaba porque la cuenta 4 ya tenía diez reportes de la primera corrida en la ventana de 24 horas. Repetir los casos de cuota requiere una cuenta 4 nueva o esperar 24 horas.
-- **4.1 sigue sin marcar:** la base real confirmó lock, unicidad, conteo y transición con el umbral de la fila, pero la prioridad de `ALREADY_CONFIRMED` frente a `REPORT_RESOLVED` no se puede ejercitar: el `CHECK` de `reports.status` no admite `resolved` en el MVP.
+- **4.1 dada por cumplida (decisión de Fran, 24/10/2026):** la base real confirmó lock, unicidad, conteo y transición con el umbral de la fila. La prioridad de `ALREADY_CONFIRMED` frente a `REPORT_RESOLVED` no se puede ejercitar porque el `CHECK` de `reports.status` no admite `resolved` en el MVP; queda para el change institucional.

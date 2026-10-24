@@ -7,6 +7,7 @@ import { fieldForErrorPath, groupFieldErrors, randomUuid } from "./form-helpers"
 import { fitWithin, MAX_PHOTO_SIDE } from "./photo-size";
 import { parseSimulatedFailure, publishReport } from "./report-publisher";
 import { draftReducer, emptyDraft, hasDraftData, toReportFields } from "./report-draft";
+import { changesFromVisionSuggestion } from "./vision-suggestion";
 import { geolocationOutcome } from "./geolocation-outcome";
 import { validateReportFields } from "../../../lib/contracts/validation";
 
@@ -137,4 +138,31 @@ test("una ubicación fuera de Rosario no mueve el mapa; una imprecisa avisa", ()
   assert.equal(cordoba.move, false);
   assert.match(cordoba.message ?? "", /fuera de Rosario/);
   assert.equal(geolocationOutcome({ latitude: -32.915, longitude: -60.8 }, 30).move, false, "Funes");
+});
+
+test("IA solo completa campos vacíos y nunca reemplaza datos ciudadanos", () => {
+  const draft = {
+    ...emptyDraft(), title: "Mi título", categoryId: "pothole" as const,
+    street: "Córdoba", number: "123", point: { latitude: -32.95, longitude: -60.66 },
+  };
+  const changes = changesFromVisionSuggestion(draft, {
+    title: "Título IA", description: "Se observa un bache profundo en la calle.",
+    categoryId: "damaged-sidewalk", severity: "medium", warnings: [],
+  });
+  assert.deepEqual(changes, { description: "Se observa un bache profundo en la calle.", severity: "medium" });
+  const merged = { ...draft, ...changes };
+  assert.equal(merged.title, "Mi título");
+  assert.equal(merged.categoryId, "pothole");
+  assert.deepEqual(merged.point, draft.point);
+  assert.equal(merged.street, "Córdoba");
+  assert.equal(merged.number, "123");
+});
+
+test("IA permite sugerencias parciales o sin certeza sin cambiar el borrador", () => {
+  const draft = emptyDraft();
+  const changes = changesFromVisionSuggestion(draft, {
+    title: null, description: null, categoryId: null, severity: null,
+    warnings: ["La foto no demuestra una falla de semáforo."],
+  });
+  assert.deepEqual(changes, {});
 });

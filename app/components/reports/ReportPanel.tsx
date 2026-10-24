@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, type Ref } from "react";
+import { useLayoutEffect, useRef, useState, type Ref } from "react";
+import type { ImageSuggestion } from "@/lib/contracts/vision";
 import { INITIAL_CATEGORIES } from "@/lib/contracts/categories";
 import { SEVERITIES, SEVERITY_DETAILS, type Report } from "@/lib/contracts/reports";
 import { validatePublishReportRequest } from "@/lib/contracts/validation";
@@ -9,6 +10,8 @@ import { USING_SAMPLE_DATA } from "../map/report-source";
 import { groupFieldErrors, randomUuid, type FormField } from "./form-helpers";
 import { LoginPrompt } from "./LoginPrompt";
 import { PhotoField } from "./PhotoField";
+import { VisionAssist } from "./VisionAssist";
+import { changesFromVisionSuggestion } from "./vision-suggestion";
 import { toReportFields, type Draft, type DraftChanges } from "./report-draft";
 import { publishReport, type SimulatedFailure } from "./report-publisher";
 
@@ -76,12 +79,23 @@ export function ReportPanel({
   const [submission, setSubmission] = useState<Submission>({ state: "editing" });
   const [errors, setErrors] = useState<Errors>({});
   const publishing = useRef(false);
+  // Snapshot actualizado tras cada commit; un resultado asíncrono no debe usar datos anteriores.
+  const latestDraft = useRef(draft);
+  useLayoutEffect(() => { latestDraft.current = draft; }, [draft]);
 
   // Al corregir un campo se borra su error, para no dejar a la vista un mensaje que ya no aplica.
   const set = (changes: DraftChanges) => {
+    latestDraft.current = { ...latestDraft.current, ...changes };
     onChange(changes);
     const touched = new Set(Object.keys(changes).map((key) => DRAFT_FIELD[key as keyof Draft]).filter(Boolean));
     if (touched.size) setErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !touched.has(field as FormField))));
+  };
+
+  const applyVisionSuggestion = (suggestion: ImageSuggestion, photo: File) => {
+    const current = latestDraft.current;
+    if (current.photo !== photo || publishing.current) return;
+    const changes = changesFromVisionSuggestion(current, suggestion);
+    if (Object.keys(changes).length > 0) set(changes);
   };
 
   const submit = async () => {
@@ -171,6 +185,7 @@ export function ReportPanel({
           <div className={sectionClass}>
             <h3 className="font-semibold text-black dark:text-zinc-50">Foto</h3>
             <PhotoField photo={draft.photo} onChange={(photo) => set({ photo })} errors={errors.photo} />
+            <VisionAssist photo={draft.photo} disabled={submission.state === "publishing"} onSuggestion={applyVisionSuggestion} />
           </div>
 
           <div className={sectionClass}>

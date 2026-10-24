@@ -16,10 +16,13 @@ import { parseSimulatedFailure, type SimulatedFailure } from "@/app/components/r
 import { useGeolocation } from "@/app/components/reports/use-geolocation";
 import { createClient } from "@/utils/supabase/client";
 import { loadAllReportsInBbox, toBbox, USING_SAMPLE_DATA, type SampleReportChanges } from "./report-source";
+import { SessionMenu } from "./SessionMenu";
 import { isInsideRosario } from "./rosario-boundary";
 import { PANNING_BOUNDS, ROSARIO_CENTER, RosarioMask } from "./RosarioMask";
 
 const INITIAL_ZOOM = 13;
+// Margen de 10 px de Leaflet + 34 px del botón de menú + 8 px de separación.
+const MENU_BUTTON_OFFSET_PX = 52;
 const RELOAD_DEBOUNCE_MS = 300;
 
 const SEVERITY_MARKER_CLASSES: Record<Severity, string> = {
@@ -65,6 +68,18 @@ function ViewportWatcher({ onViewportChange }: { onViewportChange: (bbox: string
   return null;
 }
 
+/** Baja los botones de zoom para dejar lugar arriba al menú de la cuenta (34 px de alto). */
+function ZoomBelowMenu() {
+  const map = useMap();
+  useEffect(() => {
+    const zoom = map.zoomControl?.getContainer();
+    if (!zoom) return;
+    zoom.style.marginTop = `${MENU_BUTTON_OFFSET_PX}px`;
+    return () => { zoom.style.marginTop = ""; };
+  }, [map]);
+  return null;
+}
+
 /** Informa el centro del mapa cada vez que se termina de mover: es el punto bajo el pin fijo. */
 function CenterWatcher({ onCenterChange }: { onCenterChange: (point: Point) => void }) {
   const map = useMap();
@@ -106,7 +121,13 @@ function PointFocus({ point, panelRef }: { point: Point | null; panelRef: RefObj
   return null;
 }
 
-const hasSession = async () => Boolean((await createClient().auth.getClaims()).data?.claims);
+type Session = { signedIn: boolean; email: string | null };
+
+/** Sesión del navegador, solo para la interfaz: la verificación real la hacen el backend (401) y RLS. */
+const readSession = async (): Promise<Session> => {
+  const claims = (await createClient().auth.getClaims()).data?.claims;
+  return { signedIn: Boolean(claims), email: typeof claims?.email === "string" ? claims.email : null };
+};
 
 type LoadState = "loading" | "ready" | "error";
 /** viewing: mapa normal; picking: elegir el punto con el pin fijo; filling: panel del reporte. */
@@ -133,8 +154,13 @@ export default function ReportsMap() {
   const simulateConfirmation = useRef<SimulatedConfirmationFailure | null>(null);
   // Reporte a abrir al volver del login con ?reporte=<id>; se busca en la primera carga que termina.
   const pendingReportId = useRef<string | null>(null);
-  // null mientras no se sabe; la verificación real la hacen el backend (401) y RLS.
+  // signedIn es null mientras no se sabe.
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+  const applyReadSession = useCallback((session: Session) => {
+    setSignedIn(session.signedIn);
+    setEmail(session.email);
+  }, []);
 
   const load = useCallback(async (bbox: string) => {
     const requestId = ++latestRequest.current;
@@ -171,16 +197,23 @@ export default function ReportsMap() {
   const { clearMessage } = geolocation;
 
   /** Con sesión empieza el reporte; sin sesión muestra el login. La verificación real la hace la publicación (401). */
-  const applySession = useCallback((hasSession: boolean) => {
-    setSignedIn(hasSession);
-    setLoginNeeded(!hasSession);
-    if (!hasSession) return;
+  const applySession = useCallback((session: Session) => {
+    applyReadSession(session);
+    setLoginNeeded(!session.signedIn);
+    if (!session.signedIn) return;
     setSelected(null);
     clearMessage();
     setMode("picking");
-  }, [clearMessage]);
+  }, [applyReadSession, clearMessage]);
 
-  const startReport = useCallback(() => hasSession().then(applySession), [applySession]);
+  const startReport = useCallback(() => readSession().then(applySession), [applySession]);
+
+  /** Cierra la sesión y deja todo el mapa sin sesión, sin recargar: `/mapa` no lee la sesión en el servidor. */
+  const signOut = async () => {
+    const { error } = await createClient().auth.signOut();
+    if (error) throw error;
+    applyReadSession({ signedIn: false, email: null });
+  };
 
   // Al volver del login, ?reportar=1 abre el reporte nuevo y ?reporte=<id> el detalle de ese reporte;
   // ?simular= solo vale en el modo de ejemplo. Corre una sola vez: si no, el error simulado se
@@ -202,8 +235,8 @@ export default function ReportsMap() {
       const query = params.toString();
       window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
     }
-    void hasSession().then(startReporting ? applySession : setSignedIn);
-  }, [applySession]);
+    void readSession().then(startReporting ? applySession : applyReadSession);
+  }, [applySession, applyReadSession]);
 
   const applyConfirmation = useCallback((id: string, changes: SampleReportChanges) => {
     // Se usan los valores que devolvió el servidor, sin recalcular la etapa.
@@ -263,6 +296,7 @@ export default function ReportsMap() {
         className="h-full w-full"
       >
         <RosarioMask />
+        <ZoomBelowMenu />
         <ViewportWatcher onViewportChange={handleViewportChange} />
         {mode === "picking" && <CenterWatcher onCenterChange={setCenter} />}
         <PointFocus
@@ -282,6 +316,9 @@ export default function ReportsMap() {
           <Marker position={[draft.point.latitude, draft.point.longitude]} icon={PIN_ICON} interactive={false} title="Ubicación del reporte" />
         )}
       </MapContainer>
+
+      {/* Mientras hay un reporte en curso no se muestra, igual que "Reportar". */}
+      {mode === "viewing" && <SessionMenu signedIn={signedIn} email={email} onSignOut={signOut} />}
 
       <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center px-4" aria-live="polite">
         {loadState === "loading" && mode === "viewing" && (

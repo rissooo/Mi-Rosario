@@ -35,12 +35,11 @@ export function selectLocalVisionProvider(
     const steps: VisionFallbackStep[] = [
       { name: "groq", provider: groqProvider, limitMs: 5_000 },
     ];
-    const geminiKey = env.GEMINI_API_KEY?.trim();
-    if (geminiKey) steps.push({ name: "gemini", provider: buildGeminiProvider(geminiKey, env.GEMINI_MODEL ?? "gemini-3.8-flash", createClient, diagnostic), limitMs: 9_000 });
+    // Gemini se conserva solo en el modo legacy independiente; el router no lo invoca.
     if (env.VISION_LOCAL_OPENAI_REAL === "1") {
       const openaiKey = env.OPENAI_API_KEY?.trim();
       if (!openaiKey) { diagnostic?.event("configuration", "key_missing", 503); throw new VisionError("ANALYSIS_UNAVAILABLE"); }
-      steps.push({ name: "openai", provider: createOpenAIVisionProvider(openaiKey), limitMs: 4_000 });
+      steps.push({ name: "openai", provider: createOpenAIVisionProvider(openaiKey), limitMs: 12_000 });
     }
     const reporter = env.VISION_LOCAL_ROUTER_TRACE === "1"
       ? (event: VisionAttemptEvent) => {

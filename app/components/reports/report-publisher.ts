@@ -16,7 +16,7 @@ export type PublishInput = { report: ReportFields; image: File; idempotencyKey: 
 export type PublishResponse = { status: number; body: ApiResult<Report> };
 
 /** Errores que se pueden simular con `?simular=` en /reportar mientras se usa la fuente falsa. */
-export const SIMULATED_FAILURES = ["STORAGE_UNAVAILABLE", "PUBLICATION_IN_PROGRESS", "UNAUTHENTICATED"] as const;
+export const SIMULATED_FAILURES = ["STORAGE_UNAVAILABLE", "PUBLICATION_IN_PROGRESS", "RATE_LIMITED", "UNAUTHENTICATED"] as const;
 export type SimulatedFailure = (typeof SIMULATED_FAILURES)[number];
 
 export function parseSimulatedFailure(value: string | null): SimulatedFailure | null {
@@ -31,6 +31,7 @@ const caseMessage = (code: ErrorCode) => {
 const MESSAGES: Partial<Record<ErrorCode, string>> = {
   STORAGE_UNAVAILABLE: caseMessage("STORAGE_UNAVAILABLE"),
   PUBLICATION_IN_PROGRESS: caseMessage("PUBLICATION_IN_PROGRESS"),
+  RATE_LIMITED: caseMessage("RATE_LIMITED"),
   IDEMPOTENCY_CONFLICT: caseMessage("IDEMPOTENCY_CONFLICT"),
   UNAUTHENTICATED: "Iniciá sesión para publicar un reporte.",
 };
@@ -72,7 +73,8 @@ export async function publishReport(
     ...publicFields,
     id: randomUuid(),
     // Photo.url tiene que ser HTTPS: en el modo de ejemplo no hay dónde ver la foto publicada.
-    photo: { id: randomUuid(), url: "https://example.invalid/foto-publicada.jpg", expiresAt: now, mimeType: input.image.type as ImageMimeType, byteSize: input.image.size },
+    // expiresAt null, como la URL pública que devuelve el backend real.
+    photo: { id: randomUuid(), url: "https://example.invalid/foto-publicada.jpg", expiresAt: null, mimeType: input.image.type as ImageMimeType, byteSize: input.image.size },
     status: "pending",
     createdAt: now,
     updatedAt: now,

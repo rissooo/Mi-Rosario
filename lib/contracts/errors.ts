@@ -14,6 +14,8 @@ export const ERROR_STATUS = {
   PUBLICATION_IN_PROGRESS: 409,
   IDEMPOTENCY_CONFLICT: 409,
   STORAGE_UNAVAILABLE: 503,
+  /** Cuota por cuenta alcanzada; va con Retry-After en segundos. No es una publicación en curso. */
+  RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
 } as const;
 export type ErrorCode = keyof typeof ERROR_STATUS;

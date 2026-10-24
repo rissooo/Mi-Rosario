@@ -61,7 +61,9 @@ La gravedad sugerida por la IA puede ser nula; el vecino la corrige o la elige a
 
 **Dirección (change `add-report-address`, pendiente de revisión de Agus y Valen).** `address` es `{ street, number }`. `street` es la calle: se le quitan los espacios sobrantes y debe tener de 2 a 80 caracteres. `number` es la altura: un entero de 1 a 99999, o `null` cuando el lugar no tiene altura (un parque o una plaza). Las coordenadas ubican el marcador en el mapa; la dirección es lo que leen los vecinos. El contrato no verifica que las dos describan el mismo lugar. `Report` devuelve la ubicación con la misma forma.
 
-`Report` agrega el ID asignado por el servidor, el estado, la foto, las fechas UTC de creación y actualización, los datos de verificación ciudadana, la disponibilidad y la evidencia institucional y la fecha de resolución, que puede ser nula. No incluye email, identidad privada del autor, ruta del objeto original ni datos internos de la publicación. `Photo` contiene el ID, la URL HTTPS autorizada para ver la foto, el vencimiento de esa URL, el MIME y el tamaño en bytes. La URL apunta a una versión segura para ver; el original sin cambios sigue siendo privado. Las URLs sintéticas usan `example.invalid` y, a propósito, no apuntan a fotos reales.
+`Report` agrega el ID asignado por el servidor, el estado, la foto, las fechas UTC de creación y actualización, los datos de verificación ciudadana, la disponibilidad y la evidencia institucional y la fecha de resolución, que puede ser nula. No incluye email, identidad privada del autor, ruta del objeto original ni datos internos de la publicación. `Photo` contiene el ID, la URL HTTPS autorizada para ver la foto, el vencimiento de esa URL (`expiresAt`), el MIME y el tamaño en bytes. La URL apunta a una versión segura para ver; el original sin cambios sigue siendo privado. Las URLs sintéticas usan `example.invalid` y, a propósito, no apuntan a fotos reales.
+
+**Vencimiento de la URL (change `adjust-photo-expiry-and-rate-limit`).** `expiresAt` es `IsoDateTime | null` y la clave es obligatoria: un productor que la omite no cumple el contrato. `null` significa que la URL no vence; es lo que devuelve hoy el backend, que sirve la versión para ver con la URL pública del bucket `reports-public`. Una fecha UTC queda reservada para URLs firmadas: si ya pasó, la interfaz muestra "Foto no disponible" sin pedir la imagen. Los fixtures de reportes usan `null`. Una URL pública no se revoca con el tiempo: para retirar una foto (moderación o borrado de la cuenta) el backend tiene que borrar o mover el objeto de `reports-public`. Esa política sigue pendiente junto con la retención de fotos.
 
 `CitizenVerification` devuelve `confirmationCount`, el `threshold` efectivo (entero positivo), `policyStatus: 'approved'` y `corroborated`. El frontend muestra los datos que define el servidor; no debe calcular transiciones a partir de la constante exportada del umbral inicial.
 
@@ -78,7 +80,7 @@ La gravedad sugerida por la IA puede ser nula; el vecino la corrige o la elige a
 | Agus | GET `/api/reports/{id}/confirmations/me` | UUID con sesión | 200 `{ data: MyConfirmation }` |
 | Agus | POST `/api/reports/{id}/confirmations` | UUID con sesión y `{}` | 201 la primera inserción, 200 si ya existía, `{ data: ConfirmationResult }` |
 
-Los errores usan `{ error: { code, message, fieldErrors? } }`; los mensajes están en español. `ERROR_STATUS` define qué status HTTP corresponde a cada error. Las respuestas 405 que genera el framework son excepciones del transporte. El futuro límite HTTP tiene que verificar la identidad y proteger las mutaciones con verificación de mismo origen, en lugar de aceptar campos de identidad enviados por quien llama.
+Los errores usan `{ error: { code, message, fieldErrors? } }`; los mensajes están en español. `ERROR_STATUS` define qué status HTTP corresponde a cada error, incluido 429 RATE_LIMITED para las cuotas por cuenta (ver los casos de publicación). Las respuestas 405 que genera el framework son excepciones del transporte. El futuro límite HTTP tiene que verificar la identidad y proteger las mutaciones con verificación de mismo origen, en lugar de aceptar campos de identidad enviados por quien llama.
 
 Los errores de archivo y de campos se clasifican en el futuro límite del transporte:
 
@@ -112,8 +114,11 @@ Las confirmaciones ciudadanas son únicas por cuenta autenticada (que no sea el 
 | Primera operación completada | 201, reporte nuevo |
 | Misma clave y cuenta, y mismos campos validados y huella de la foto | 200, mismo ID de reporte; la URL para ver puede renovarse |
 | Clave reutilizada con otro contenido | 409 IDEMPOTENCY_CONFLICT |
-| La misma operación sigue en curso | 409 PUBLICATION_IN_PROGRESS; Retry-After |
+| La misma operación (misma clave) sigue en curso | 409 PUBLICATION_IN_PROGRESS; Retry-After; reintentar con la misma clave |
+| La cuenta alcanzó una cuota: 3 publicaciones en curso o 10 reportes en las últimas 24 h (configurables en el backend) | 429 RATE_LIMITED; Retry-After en segundos; conservar archivo, borrador y clave para reintentar más tarde |
 | Falla temporal del almacenamiento de la foto | 503 STORAGE_UNAVAILABLE; conservar archivo, borrador y clave |
+
+`RATE_LIMITED` (change `adjust-photo-expiry-and-rate-limit`) es un código genérico de cuota por cuenta: no indica que haya una publicación en curso, y reintentar enseguida no lo resuelve. Las dos cuotas usan el mismo código y se distinguen solo por el `message` en español; el sobre no lleva un campo de cuota. `Retry-After` va en el header, en segundos enteros mayores o iguales a 1, no en el cuerpo. El análisis de visión sigue informando su capacidad agotada como 503 ANALYSIS_UNAVAILABLE.
 
 El futuro backend guarda huellas y bloqueos de las operaciones, publica solo cuando la referencia al original y la versión segura para ver están listas, y reconcilia fallas parciales entre la base de datos y Storage. La limpieza nunca debe borrar un original ya confirmado. Este paquete no implementa esas operaciones.
 

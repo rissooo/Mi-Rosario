@@ -111,7 +111,7 @@ function photo(c: Check, value: unknown, path: string) {
     const url = new URL(o.url);
     if (url.protocol !== "https:" || url.username || url.password) throw new Error();
   } catch { c.issue(pathOf(path, "url"), "Ingresá una URL HTTPS válida."); }
-  c.date(o.expiresAt, pathOf(path, "expiresAt"));
+  if (o.expiresAt !== null) c.date(o.expiresAt, pathOf(path, "expiresAt"));
   c.enum(o.mimeType, pathOf(path, "mimeType"), IMAGE_MIME_TYPES);
   c.number(o.byteSize, pathOf(path, "byteSize"), 1, MAX_IMAGE_BYTES, true);
 }

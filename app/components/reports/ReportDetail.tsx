@@ -18,7 +18,8 @@ const formatAddress = ({ street, number }: Address) => (number === null ? `${str
 const isInstitutional = (stage: ReportStage) => FUTURE_INSTITUTIONAL_STAGES.some((future) => future === stage);
 
 function ReportPhoto({ photo, title }: { photo: Photo; title: string }) {
-  const [failed, setFailed] = useState(() => Date.parse(photo.expiresAt) <= Date.now());
+  // expiresAt null: la URL no vence. Con fecha, una URL ya vencida ni se pide.
+  const [failed, setFailed] = useState(() => photo.expiresAt !== null && Date.parse(photo.expiresAt) <= Date.now());
 
   if (failed) {
     return (
@@ -28,8 +29,8 @@ function ReportPhoto({ photo, title }: { photo: Photo; title: string }) {
     );
   }
   return (
-    // Las URLs firmadas de las fotos vencen y vienen del backend; next/image necesitaría
-    // remotePatterns en el next.config.ts compartido y, de todos modos, no podría cachearlas.
+    // Las URLs de las fotos vienen del backend y pueden vencer; next/image necesitaría
+    // remotePatterns en el next.config.ts compartido y no podría cachear las que vencen.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={photo.url}

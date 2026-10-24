@@ -84,13 +84,18 @@ test("una clave que no es UUID se rechaza", async () => {
 });
 
 test("los errores simulados responden con el status y el mensaje del contrato", async () => {
-  const cases = [["STORAGE_UNAVAILABLE", 503], ["PUBLICATION_IN_PROGRESS", 409], ["UNAUTHENTICATED", 401]] as const;
+  const cases = [["STORAGE_UNAVAILABLE", 503], ["PUBLICATION_IN_PROGRESS", 409], ["RATE_LIMITED", 429], ["UNAUTHENTICATED", 401]] as const;
+  const messages = new Map<string, string | undefined>();
   for (const [code, status] of cases) {
     const result = await publishReport({ report: fields, image: photo(), idempotencyKey: randomUuid() }, { ...now, simulate: code });
     assert.equal(result.status, status, code);
     assert.equal(result.body.error?.code, code);
     assert.ok(result.body.error?.message.length);
+    messages.set(code, result.body.error?.message);
   }
+  // La cuota de la cuenta no se presenta como una publicación en curso.
+  assert.notEqual(messages.get("RATE_LIMITED"), messages.get("PUBLICATION_IN_PROGRESS"));
+  assert.equal(parseSimulatedFailure("RATE_LIMITED"), "RATE_LIMITED");
   assert.equal(parseSimulatedFailure("STORAGE_UNAVAILABLE"), "STORAGE_UNAVAILABLE");
   assert.equal(parseSimulatedFailure("cualquier-cosa"), null);
   assert.equal(parseSimulatedFailure(null), null);

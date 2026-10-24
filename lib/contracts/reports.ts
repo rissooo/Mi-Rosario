@@ -52,8 +52,11 @@ export type ReportFields = {
 /** Serializá el reporte como JSON y la imagen como archivo en un FormData multipart. */
 export type PublishReportRequest = { report: ReportFields; image: File };
 export type PublicationHeaders = { "Idempotency-Key": UUID };
-/** Solo un recurso de presentación; nunca una referencia al objeto original privado. */
-export type Photo = { id: UUID; url: string; expiresAt: IsoDateTime; mimeType: ImageMimeType; byteSize: number };
+/**
+ * Solo un recurso de presentación; nunca una referencia al objeto original privado.
+ * expiresAt es null cuando la URL no vence (por ejemplo, una URL pública del bucket).
+ */
+export type Photo = { id: UUID; url: string; expiresAt: IsoDateTime | null; mimeType: ImageMimeType; byteSize: number };
 export type CitizenVerification = {
   confirmationCount: number;
   threshold: number;

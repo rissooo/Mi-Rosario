@@ -36,3 +36,37 @@ npm run dev
 Con sesión iniciada y origen `http://localhost:3000`, probá la carga de una foto a través del formulario. Con Groq disponible debe devolver el mismo contrato de sugerencias de antes. Probá luego deshabilitar temporalmente la clave de Groq para verificar el comportamiento de error (no subir variables).
 
 **Fuera de alcance:** fallback en producción/Vercel, métricas de precisión, integración con Supabase de informes y cambios de front. El PR se deja en Draft hasta probar localmente.
+
+## Diagnóstico local del fallback real (sin tocar las claves)
+
+**Primero**, con el router habilitado, agregá estas variables a `.env.local`:
+
+```dotenv
+VISION_LOCAL_ROUTER_TRACE=1
+VISION_LOCAL_TEST_GROQ_FAILURE=0
+```
+
+Reiniciá `npm run dev`, iniciá sesión y abrí `http://localhost:3000/vision-test`. Al analizar la foto, la pantalla muestra la duración total desde el navegador, y la terminal del servidor muestra solo metadatos como:
+
+```json
+{"source":"vision-router-local","provider":"groq","outcome":"success","durationMs":1200}
+```
+
+**Luego**, para simular la caída de Groq sin realizar ninguna llamada a Groq, cambiá únicamente:
+
+```dotenv
+VISION_LOCAL_TEST_GROQ_FAILURE=1
+```
+
+Reiniciá `npm run dev` y analizá la misma foto de prueba. En la terminal se debe ver `groq / failed` con `testFailure:true`, seguido de `gemini / success` **si Gemini responde a tiempo** o `gemini / timeout` si excede su límite de 9 segundos. La interfaz puede mostrar error cuando ningún proveedor cumple el presupuesto global, y eso también prueba el flujo de error controlado.
+
+**Al terminar, restaurá siempre `VISION_LOCAL_TEST_GROQ_FAILURE=0` y reiniciá el servidor.** Con `1`, la web nunca llama a Groq y podría verse lenta por el fallback a Gemini. Esta simulación funciona únicamente en desarrollo local, no en Vercel, no modifica `main` y no requiere borrar ninguna clave.
+
+Los logs excluyen contenido de imágenes, respuestas, mensajes de error, claves y datos personales; el navegador solo recibe el tiempo total, no el nombre del proveedor. El registro por proveedor se habilita explícitamente con `VISION_LOCAL_ROUTER_TRACE=1`.
+
+Tests offline actualizados:
+
+```bash
+node scripts/check-vision-router.mjs
+npx tsc --noEmit
+```

@@ -42,11 +42,11 @@ Alternativa descartada: borrar toda mención de áreas. Se pierde la orientació
 
 Alternativa descartada: borrarlas junto con los nombres. Se perdería una garantía de seguridad real.
 
-### 3. Regla de revisión: otra persona del equipo
+### 3. Regla de revisión: Claude revisa, Fran autoriza
 
-Elegida por el usuario. Un PR que toca `lib/contracts/`, `supabase/migrations/`, RLS o políticas de Storage, `proxy.ts` o las instrucciones compartidas (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) necesita la revisión de al menos otra persona del equipo, sin importar el área. Se mantiene "un solo editor por PR para archivos compartidos", que evita pisarse cuando trabajan en paralelo en la misma compu. Esta regla no reemplaza la autorización explícita del usuario para commit, push, merge, deploy y archive.
+Elegida por el usuario durante la revisión del PR #19, en lugar de la versión anterior de este change ("al menos otra persona del equipo"). Claude revisa el diff completo de cada PR, incluidos los que tocan `lib/contracts/`, `supabase/migrations/`, RLS o políticas de Storage, `proxy.ts` o las instrucciones compartidas (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`), informa los hallazgos y pide la autorización de Fran para mergear. No hace falta esperar a otra persona del equipo; cualquiera puede revisar además. Se mantiene "un solo editor por PR para archivos compartidos", que evita pisarse cuando trabajan en paralelo en la misma compu. Esta regla no reemplaza la autorización explícita del usuario para commit, push, merge, deploy y archive.
 
-Alternativas descartadas por el usuario: no exigir revisión, o mantenerla entre proveedor y consumidor por área.
+Alternativas descartadas por el usuario: exigir la revisión de otra persona del equipo (frenaba los PRs), no exigir ninguna revisión, o mantenerla entre proveedor y consumidor por área.
 
 ### 4. Cómo se edita la spec de `establish-team-architecture`
 
@@ -56,7 +56,7 @@ La spec `team-collaboration` no existe en `openspec/specs`, solo como delta "ADD
 
 Por eso este change declara `skip_specs: true` y edita directamente el archivo de spec de ese change, como tarea con su propia verificación (`openspec validate establish-team-architecture --strict`). Es lo que hace `/opsx:update` sobre un change. Se reescriben los cuatro requisitos afectados, conservando sus encabezados para no romper referencias:
 - "Módulos con responsable y contratos comunes": áreas y equipo conjunto; los escenarios hablan del área, no de la persona.
-- "Evolución revisable del contrato": la revisión la hace al menos otra persona del equipo.
+- "Evolución revisable del contrato": la revisión la hace Claude y el merge lo autoriza Fran.
 - "Ramas y revisiones trazables": ramas por área y revisión de otra persona en los PRs de límites.
 - "Acceso individual a asistentes y recursos": "Cada persona del equipo usa su propia autenticación…", en lugar de solo Agus.
 

@@ -293,10 +293,77 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
   }
 });
 
+function createListSupabase(rows: unknown[]) {
+  const orFilters: string[] = [];
+  const query = {
+    select: () => query,
+    order: () => query,
+    limit: () => query,
+    eq: () => query,
+    gte: () => query,
+    lte: () => query,
+    or: (filter: string) => {
+      orFilters.push(filter);
+      return query;
+    },
+    then: (resolve: (value: unknown) => unknown) => resolve({ data: rows, error: null }),
+  };
+  const supabase = {
+    from: () => query,
+    storage: {
+      from: () => ({
+        getPublicUrl: (path: string) => ({ data: { publicUrl: `https://public.example/${path}` } }),
+      }),
+    },
+  } as unknown as SupabaseClient;
+  return { supabase, orFilters };
+}
+
+const listRow = {
+  id: "10000000-0000-4000-8000-000000000001",
+  title: "Bache profundo en la calle",
+  description: "Bache grande en el carril derecho.",
+  category_id: "pothole",
+  severity: "high",
+  status: "pending",
+  latitude: -32.9468,
+  longitude: -60.6393,
+  street: "Córdoba",
+  street_number: 1250,
+  created_at: "2026-10-22T10:00:00.123Z",
+  updated_at: "2026-10-22T10:00:00.123Z",
+  corroborated_at: null,
+  photo_public_path: "10000000-0000-4000-8000-000000000001.jpg",
+  photo_public_mime_type: "image/jpeg",
+  photo_public_byte_size: 1912,
+  confirmation_count: 0,
+  confirmation_threshold: 3,
+};
+
+test("una fecha con el formato crudo de PostgREST hace fallar la lista: la vista debe formatearla", async () => {
+  const { supabase } = createListSupabase([
+    { ...listRow, created_at: "2026-10-22T10:00:00.123456+00:00" },
+  ]);
+  const response = await listReportsService(supabase, {});
+  assert.equal(response.httpStatus, 500);
+  assert.equal(response.result.error?.code, "INTERNAL_ERROR");
+});
+
+test("el cursor filtra por fecha entre comillas y con el id validado", async () => {
+  const { supabase, orFilters } = createListSupabase([listRow]);
+  const cursor = encodeCursor({ id: listRow.id, createdAt: listRow.created_at }, {});
+  const response = await listReportsService(supabase, { cursor });
+  assert.equal(response.httpStatus, 200);
+  assert.deepEqual(orFilters, [
+    `created_at.lt."2026-10-22T10:00:00.123Z",and(created_at.eq."2026-10-22T10:00:00.123Z",id.lt.${listRow.id})`,
+  ]);
+});
+
 test("publishReportService devuelve error 415 de validación ante JPEG truncado, no 500", async () => {
   const mock = createPublishSupabase();
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(publishFields, new Uint8Array([0xff, 0xd8, 0xff])),
     idempotencyKey,
@@ -312,6 +379,7 @@ test("publishReportService parsea report como JSON y publica con el report_id re
   const mock = createPublishSupabase();
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,
@@ -338,6 +406,7 @@ test("publishReportService rechaza JSON mal formado antes de reclamar o subir", 
   const mock = createPublishSupabase();
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm("{"),
     idempotencyKey,
@@ -353,6 +422,7 @@ test("publishReportService valida el contenido JSON del reporte antes de reclama
   const mock = createPublishSupabase();
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm({ ...publishFields, title: "cort" }),
     idempotencyKey,
@@ -365,12 +435,44 @@ test("publishReportService valida el contenido JSON del reporte antes de reclama
   assert.deepEqual(mock.uploadedPaths, []);
 });
 
+test("las fotos se suben y compensan con el cliente del servidor, nunca con la sesión del vecino", async () => {
+  const session = createPublishSupabase({ publishError: { code: "23514", message: "constraint violation" } });
+  const server = createPublishSupabase();
+  const sessionStorageUse: string[] = [];
+  (session.supabase as unknown as { storage: unknown }).storage = {
+    from: (bucket: string) => {
+      sessionStorageUse.push(bucket);
+      throw new Error("la sesión del vecino no debe tocar Storage");
+    },
+  };
+
+  const response = await publishReportService({
+    supabase: session.supabase,
+    storage: server.supabase,
+    userId: "user-1",
+    formData: createPublishForm(),
+    idempotencyKey,
+  });
+
+  assert.equal(response.result.error?.code, "INTERNAL_ERROR");
+  assert.deepEqual(sessionStorageUse, []);
+  assert.deepEqual(session.rpcCalls.map((call) => call.name), [
+    "claim_idempotency_key",
+    "publish_report",
+    "fail_idempotency_key",
+  ]);
+  assert.deepEqual(server.rpcCalls, []);
+  assert.equal(server.uploadedPaths.length, 2);
+  assert.deepEqual(server.removedPaths.sort(), server.uploadedPaths.sort());
+});
+
 test("publishReportService reutiliza el report_id reservado en un reintento completado", async () => {
   const mock = createPublishSupabase({
     claimResult: { action: "COMPLETED", status: "completed", reportId: reservedReportId },
   });
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,
@@ -386,6 +488,7 @@ test("un rechazo definitivo antes del commit compensa la foto y marca la clave f
   const mock = createPublishSupabase({ publishError: { code: "23514", message: "constraint violation" } });
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,
@@ -414,6 +517,7 @@ test("un timeout de publish_report conserva la foto y no marca failed", async ()
   const mock = createPublishSupabase({ publishError: { code: "57014", message: "statement timeout" } });
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,
@@ -429,6 +533,7 @@ test("un error desconocido de publish_report conserva ambas fotos y no marca fai
   const mock = createPublishSupabase({ publishThrow: new Error("resultado no reconocido") });
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,
@@ -444,6 +549,7 @@ test("un error al preparar la respuesta después del commit no borra ni marca fa
   const mock = createPublishSupabase({ detailError: true });
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,
@@ -479,6 +585,7 @@ test("el límite del tamaño real devuelve 413 antes de reclamar o leer la image
   const formData = createPublishForm(publishFields, new Uint8Array(MAX_IMAGE_BYTES + 1));
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData,
     idempotencyKey,
@@ -502,6 +609,7 @@ test("el claim de cuota devuelve el error del contrato y el Retry-After", async 
   });
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,
@@ -526,6 +634,7 @@ test("el límite diario de publish_report compensa antes de marcar la clave fall
   });
   const response = await publishReportService({
     supabase: mock.supabase,
+    storage: mock.supabase,
     userId: "user-1",
     formData: createPublishForm(),
     idempotencyKey,

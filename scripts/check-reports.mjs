@@ -16,6 +16,7 @@ try {
     join(root, "tests/service.test.ts"),
     join(root, "tests/list-query.test.ts"),
     join(root, "tests/request-size.test.ts"),
+    join(root, "tests/same-origin.test.ts"),
   ];
   const staticTestFiles = [join(root, "tests/migrations-static.test.mjs")];
 

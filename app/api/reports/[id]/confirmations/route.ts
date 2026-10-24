@@ -1,13 +1,18 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { confirmReport } from "@/lib/reports/confirmations";
+import { CROSS_SITE_MUTATION_ERROR, isCrossSiteMutation } from "@/lib/reports/same-origin";
 import { createClient } from "@/utils/supabase/server";
 
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    if (isCrossSiteMutation(request.headers, request.nextUrl.origin)) {
+      return NextResponse.json(CROSS_SITE_MUTATION_ERROR, { status: 403 });
+    }
+
     const { id } = await params;
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);

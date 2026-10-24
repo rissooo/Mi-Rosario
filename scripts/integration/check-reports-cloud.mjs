@@ -80,14 +80,21 @@ function assertSafeEnvironment(environment) {
     throw new Error("URL bloqueada: se requiere el origen HTTPS de un proyecto Supabase.");
   }
 
-  const environmentContainsServiceKey = Object.entries(environment).some(([name, value]) => {
-    if (!value) return false;
+  // La única clave secreta admitida es SUPABASE_SECRET_KEY, y solo para simular las
+  // subidas que hace el servidor. Cualquier otra (service_role, nombres distintos) bloquea.
+  const environmentContainsOtherServiceKey = Object.entries(environment).some(([name, value]) => {
+    if (!value || name === "SUPABASE_SECRET_KEY") return false;
     if (/(SERVICE[_-]?ROLE|SB_SECRET|SUPABASE_SECRET)/i.test(name)) return true;
     if (/(SERVICE[_-]?ROLE|SB_SECRET)/i.test(value)) return true;
     return jwtRole(value) === "service_role";
   });
-  if (environmentContainsServiceKey) {
-    throw new Error("Se detectó una clave service_role/secret en el entorno; requests bloqueados.");
+  if (environmentContainsOtherServiceKey) {
+    throw new Error("Se detectó una clave service_role/secret fuera de SUPABASE_SECRET_KEY; requests bloqueados.");
+  }
+
+  const secretKey = environment.SUPABASE_SECRET_KEY;
+  if (!secretKey || !secretKey.startsWith("sb_secret_")) {
+    throw new Error("Falta SUPABASE_SECRET_KEY (sb_secret_...) del proyecto de pruebas para simular al servidor.");
   }
 
   const publishableKey =
@@ -104,7 +111,7 @@ function assertSafeEnvironment(environment) {
     throw new Error("La clave debe ser publishable o anon; no se aceptan claves secretas.");
   }
 
-  return { url: parsedUrl.origin, publishableKey };
+  return { url: parsedUrl.origin, publishableKey, secretKey };
 }
 
 const jpegOriginal = Buffer.from([
@@ -175,18 +182,21 @@ async function failClaim(user, key, reportId, payloadHash) {
   assert.equal(data?.action, "FAILED");
 }
 
+// Simula al servidor: solo el cliente con la clave secreta puede escribir en los buckets.
+let serverStorage;
+
 async function uploadReportPhotos(user, reportId) {
   const originalPath = `${user.id}/${reportId}/original.jpg`;
   const publicPath = `${reportId}.jpg`;
 
-  const original = await user.client.storage.from("reports-originals").upload(
+  const original = await serverStorage.storage.from("reports-originals").upload(
     originalPath,
     jpegOriginal,
     { contentType: "image/jpeg", upsert: false },
   );
   requireNoError(original.error, "No se pudo cargar la foto original de prueba");
 
-  const derivative = await user.client.storage.from("reports-public").upload(
+  const derivative = await serverStorage.storage.from("reports-public").upload(
     publicPath,
     jpegPublic,
     { contentType: "image/jpeg", upsert: false },
@@ -338,6 +348,34 @@ async function runIntegrationChecks({ anonymousClient, TEST_USERS }) {
     assert.equal(data.confirmation_threshold, 3);
   });
 
+  await check("un vecino no puede subir ni borrar fotos directo en Storage", async () => {
+    const user = TEST_USERS[1];
+    const key = randomUUID();
+    const payloadHash = hashFor(key);
+    const claimed = await claim(user, key, payloadHash);
+    assert.equal(claimed?.action, "CLAIMED");
+    try {
+      const original = await user.client.storage.from("reports-originals").upload(
+        `${user.id}/${claimed.reportId}/original.jpg`,
+        jpegOriginal,
+        { contentType: "image/jpeg", upsert: false },
+      );
+      assert.ok(original.error, "un vecino subió una original sin pasar por el servidor");
+
+      const copy = await user.client.storage.from("reports-public").upload(
+        `${claimed.reportId}.jpg`,
+        jpegOriginal,
+        { contentType: "image/jpeg", upsert: false },
+      );
+      assert.ok(copy.error, "un vecino subió una copia pública sin sanear");
+
+      const removal = await TEST_USERS[0].client.storage.from("reports-public").remove([sharedReport.publicPath]);
+      assert.ok(removal.error || !removal.data?.length, "un vecino borró la copia pública de un reporte");
+    } finally {
+      await failClaim(user, key, claimed.reportId, payloadHash);
+    }
+  });
+
   await check("confirm_report rechaza una llamada sin sesión", async () => {
     const { error } = await anonymousClient.rpc("confirm_report", {
       p_report_id: sharedReport.reportId,
@@ -444,8 +482,11 @@ async function runIntegrationChecks({ anonymousClient, TEST_USERS }) {
 
 async function main() {
   const environment = loadTestEnvironment();
-  const { url, publishableKey } = assertSafeEnvironment(environment);
+  const { url, publishableKey, secretKey } = assertSafeEnvironment(environment);
   const anonymousClient = createClient(url, publishableKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  serverStorage = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 

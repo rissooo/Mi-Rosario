@@ -2,11 +2,17 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { parseReportsListRequest } from "@/lib/reports/list-query";
 import { isMultipartContentLengthTooLarge } from "@/lib/reports/request-size";
+import { CROSS_SITE_MUTATION_ERROR, isCrossSiteMutation } from "@/lib/reports/same-origin";
 import { listReportsService, publishReportService } from "@/lib/reports/service";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 
 export async function POST(request: NextRequest) {
   try {
+    if (isCrossSiteMutation(request.headers, request.nextUrl.origin)) {
+      return NextResponse.json(CROSS_SITE_MUTATION_ERROR, { status: 403 });
+    }
+
     if (isMultipartContentLengthTooLarge(request.headers.get("content-length"))) {
       return NextResponse.json(
         { error: { code: "PAYLOAD_TOO_LARGE", message: "La carga supera el tamaño máximo permitido." } },
@@ -38,6 +44,7 @@ export async function POST(request: NextRequest) {
 
     const { httpStatus, result, retryAfter } = await publishReportService({
       supabase,
+      storage: createAdminClient(),
       userId: user.id,
       formData,
       idempotencyKey,

@@ -219,14 +219,19 @@ function failurePublicationError(error: unknown): PublishServiceResult {
 
 /**
  * Publica reportes con idempotencia, carga de fotos y persistencia atómica.
+ * `supabase` actúa con la sesión del vecino (claim y publish_report usan auth.uid());
+ * `storage` es el cliente del servidor con la clave secreta, el único que puede
+ * escribir en los buckets, y solo se usa después de un claim propio.
  */
 export async function publishReportService({
   supabase,
+  storage,
   userId,
   formData,
   idempotencyKey,
 }: {
   supabase: SupabaseClient;
+  storage: SupabaseClient;
   userId: string;
   formData: FormData;
   idempotencyKey?: string | null;
@@ -318,7 +323,7 @@ export async function publishReportService({
 
   try {
     photoUpload = await uploadReportPhoto({
-      supabase,
+      supabase: storage,
       userId,
       reportId,
       fileBytes: imageBytes,
@@ -377,7 +382,7 @@ export async function publishReportService({
     if (definitive) {
       const uploadedObjects = photoUpload?.uploadedObjects ??
         (err instanceof ReportPhotoError ? err.uploadedObjects : []);
-      if (uploadedObjects.length > 0) await compensateRemovePhotos(supabase, uploadedObjects);
+      if (uploadedObjects.length > 0) await compensateRemovePhotos(storage, uploadedObjects);
       try {
         await failIdempotencySlot(supabase, parsedHeaders.value["Idempotency-Key"], reportId, payloadHash);
       } catch {
@@ -475,8 +480,10 @@ export async function listReportsService(
     const decoded = decodeCursor(cursor);
     if (decoded) {
       // Keyset comparison: created_at < cursor.createdAt OR (created_at = cursor.createdAt AND id < cursor.id)
+      // La vista expone created_at como texto UTC de ancho fijo; las comillas evitan que
+      // PostgREST tome ":" o "." como separadores. El contrato ya validó fecha y UUID.
       dbQuery = dbQuery.or(
-        `created_at.lt.${decoded.createdAt},and(created_at.eq.${decoded.createdAt},id.lt.${decoded.id})`,
+        `created_at.lt."${decoded.createdAt}",and(created_at.eq."${decoded.createdAt}",id.lt.${decoded.id})`,
       );
     }
   }

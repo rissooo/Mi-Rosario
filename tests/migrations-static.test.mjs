@@ -271,19 +271,10 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
   assert.match(confirmationFunction, /report_confirmations[\s\S]*?ALREADY_CONFIRMED[\s\S]*?REPORT_RESOLVED/i);
 
   assert.match(reportsMigration.sql, /CONSTRAINT\s+check_reports_status\s+CHECK\s*\(status\s+IN\s*\('pending',\s*'citizen-verification'\)\)/i);
-  assert.match(storageMigration.sql, /ON\s+storage\.objects\s+FOR\s+INSERT\s+TO\s+authenticated[\s\S]*?public\.can_upload_report_object/i);
-  assert.match(storageMigration.sql, /ON\s+storage\.objects\s+FOR\s+SELECT\s+TO\s+authenticated[\s\S]*?public\.can_upload_report_object/i);
-  assert.match(storageMigration.sql, /ON\s+storage\.objects\s+FOR\s+UPDATE\s+TO\s+authenticated[\s\S]*?public\.can_upload_report_object/i);
-  assert.match(storageMigration.sql, /ON\s+storage\.objects\s+FOR\s+DELETE\s+TO\s+authenticated[\s\S]*?public\.can_delete_unpublished_report_object/i);
-  for (const helper of ["can_upload_report_object", "can_delete_unpublished_report_object"]) {
-    const helperSql = storageMigration.sql.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${helper}\\([\\s\\S]*?\\$\\$;`, "i"))?.[0];
-    assert.ok(helperSql, `Debe existir el helper ${helper}`);
-    assert.match(helperSql, /auth\.uid\(\)/i);
-    assert.match(helperSql, /k\.user_id = v_user_id[\s\S]*?k\.report_id::text = v_report_id[\s\S]*?k\.status = 'in_progress'/i);
-    if (helper === "can_delete_unpublished_report_object") {
-      assert.match(helperSql, /NOT EXISTS\s*\(\s*SELECT\s+1\s+FROM public\.reports r[\s\S]*?r\.id::text = v_report_id AND r\.user_id = v_user_id/i);
-    }
-  }
+  // Solo el servidor (clave secreta) escribe en Storage: ningún cliente tiene políticas.
+  assert.doesNotMatch(allSql, /CREATE\s+POLICY\s+"[^"]*"\s+ON\s+storage\.objects/i, "Los clientes no deben tener políticas en storage.objects");
+  assert.doesNotMatch(allSql, /CREATE(?:\s+OR\s+REPLACE)?\s+FUNCTION\s+public\.can_(?:upload|delete)/i);
+  assert.match(storageMigration.sql, /DROP\s+POLICY\s+IF\s+EXISTS\s+"Allow authenticated upload for active report claim"\s+ON\s+storage\.objects/i);
   assert.match(publicViewMigration.sql, /REVOKE\s+ALL\s+PRIVILEGES\s+ON\s+TABLE\s+public\.reports\s+FROM\s+PUBLIC,\s*anon,\s*authenticated/i);
   assert.match(publicViewMigration.sql, /GRANT\s+SELECT\s+ON\s+TABLE\s+public\.public_reports\s+TO\s+anon,\s*authenticated/i);
   const viewProjection = publicViewMigration.sql.match(
@@ -295,6 +286,14 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
   }
   assert.doesNotMatch(viewProjection, /\br\.(?:user_id|storage_path|resolved|resolved_at|mime_type|byte_size)\b/i);
   assert.match(publicViewMigration.sql, /WHERE\s+r\.status\s+IN\s*\('pending',\s*'citizen-verification'\)/i);
+  // PostgREST serializa timestamptz como "...56.123456+00:00", que el contrato rechaza.
+  for (const column of ["created_at", "updated_at", "corroborated_at"]) {
+    assert.match(
+      viewProjection,
+      new RegExp(`to_char\\(r\\.${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS\\.MS"Z"'\\) AS ${column}`, "i"),
+      `La vista debe exponer ${column} en UTC con milisegundos y Z`,
+    );
+  }
 
   const creations = new Map();
   const createPattern = /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+public\.([a-z_][a-z0-9_]*)|CREATE(?:\s+OR\s+REPLACE)?\s+(?:FUNCTION|VIEW)\s+public\.([a-z_][a-z0-9_]*)/gi;
@@ -345,8 +344,13 @@ test("el script cloud carga su entorno solo al ejecutarse directamente y mantien
   assert.match(cloudScript, /signInTestUsers\(TEST_USERS\)/);
   assert.match(cloudScript, /new Set\(TEST_USERS\.map\(\(user\) => user\.id\)\)\.size, 4/);
   assert.match(cloudScript, /process\.stdout\.write\(`OK \$\{name\}\\n`\)/);
-  assert.doesNotMatch(cloudScript, /process\.stdout\.write\([^\n]*(?:publishableKey|SUPABASE_PUBLISHABLE_KEY|password)/i);
-  assert.doesNotMatch(cloudScript, /console\.(?:log|error|warn)\([^\n]*(?:publishableKey|SUPABASE_PUBLISHABLE_KEY|password)/i);
+  assert.doesNotMatch(cloudScript, /process\.stdout\.write\([^\n]*(?:publishableKey|SUPABASE_PUBLISHABLE_KEY|secretKey|SUPABASE_SECRET_KEY|password)/i);
+  assert.doesNotMatch(cloudScript, /console\.(?:log|error|warn)\([^\n]*(?:publishableKey|SUPABASE_PUBLISHABLE_KEY|secretKey|SUPABASE_SECRET_KEY|password)/i);
+  // La clave secreta solo se admite con ese nombre y formato, y solo para simular al servidor.
+  assert.match(cloudScript, /name === "SUPABASE_SECRET_KEY"/);
+  assert.match(cloudScript, /secretKey\.startsWith\("sb_secret_"\)/);
+  assert.match(cloudScript, /serverStorage\.storage\.from\("reports-originals"\)\.upload/);
+  assert.match(cloudScript, /un vecino no puede subir ni borrar fotos directo en Storage/);
   assert.doesNotMatch(cloudScript, /\.auth\.admin\./i);
   assert.match(cloudScript, /if\s*\(isDirectExecution\)\s*await main\(\)/);
   assert.doesNotMatch(unitRunner, /check-reports-cloud\.mjs/);
@@ -397,12 +401,6 @@ test("las cuotas configurables se serializan por usuario en claim y publicación
   assert.match(publish, /created_at >= pg_catalog\.clock_timestamp\(\) - interval '24 hours'/i);
   assert.match(publish, /'code', 'PUBLICATION_IN_PROGRESS'[\s\S]*?'quota', 'published_24h'/i);
   assert.match(publish, /v_locked_until <= pg_catalog\.clock_timestamp\(\)/i);
-
-  for (const helper of ["can_upload_report_object", "can_delete_unpublished_report_object"]) {
-    const helperSql = functionSql(helper);
-    assert.ok(helperSql);
-    assert.match(helperSql, /k\.locked_until > pg_catalog\.clock_timestamp\(\)/i, `${helper} debe exigir que el claim siga vigente`);
-  }
 });
 
 test("el POST limita Content-Length antes de leer el multipart y oculta errores internos", () => {

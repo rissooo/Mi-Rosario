@@ -31,6 +31,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://example.invalid
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder-not-a-real-key
 ```
 
+La publicación de reportes necesita `SUPABASE_SECRET_KEY=placeholder-not-a-real-key` (la clave `sb_secret_...` del proyecto), solo en el servidor: la usa `utils/supabase/admin.ts` para subir las fotos, porque los vecinos no tienen permiso de escritura en Storage. Va en `.env.local` y en Vercel, nunca con `NEXT_PUBLIC_`.
+
 Un futuro módulo de visión puede necesitar `GEMINI_API_KEY=placeholder-not-a-real-key`, solo en el servidor; no hace falta para desarrollar contratos del backend. Nunca uses el prefijo `NEXT_PUBLIC_` en secretos de proveedores o de service-role. La configuración publicable de Supabase no reemplaza las políticas de RLS y Storage de la base de datos.
 
 La regla existente que ignora `.env*` también ignora `.env.example`. Mantené los ejemplos en este documento en lugar de agregar una excepción general al ignore. No versiones archivos de entorno privados, credenciales de asistentes ni cachés; revisá qué se ignora y qué se versiona antes de agregar configuración de herramientas. No mires ni copies los secretos de un compañero para incorporarte.

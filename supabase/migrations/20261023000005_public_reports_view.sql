@@ -2,6 +2,11 @@
 
 REVOKE ALL PRIVILEGES ON TABLE public.reports FROM PUBLIC, anon, authenticated;
 
+-- Las fechas salen como texto UTC con milisegundos y "Z", el formato que exige el
+-- contrato. PostgREST serializaría un timestamptz con microsegundos y "+00:00".
+-- El cursor ordena y compara sobre estas mismas columnas: al tener ancho fijo, el
+-- orden del texto coincide con el cronológico y todas las páginas usan la misma
+-- precisión.
 CREATE OR REPLACE VIEW public.public_reports
 WITH (security_invoker = false) AS
 SELECT
@@ -15,9 +20,9 @@ SELECT
   r.longitude,
   r.street,
   r.street_number,
-  r.created_at,
-  r.updated_at,
-  r.corroborated_at,
+  pg_catalog.to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+  pg_catalog.to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at,
+  pg_catalog.to_char(r.corroborated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS corroborated_at,
   r.photo_public_path,
   r.photo_public_mime_type,
   r.photo_public_byte_size,

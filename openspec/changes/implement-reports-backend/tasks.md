@@ -5,7 +5,7 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 ## 1. Esquema, Storage y vista
 
 - [x] 1.1 Definir estados MVP, límites de campos, dirección, metadatos de la copia, conteo y umbral por reporte. Evidencia estática en `tests/migrations-static.test.mjs`.
-- [x] 1.2 Definir buckets, MIME/tamaño máximos y policies de Storage ligadas a helpers que exigen claim activo del mismo usuario. Evidencia estática; la policy efectiva sigue pendiente de base.
+- [x] 1.2 Definir buckets y MIME/tamaño máximos, sin policies de cliente en Storage: solo el servidor escribe con la clave secreta (D1). Evidencia estática; el rechazo efectivo de subidas directas sigue pendiente de base (5.7).
 - [x] 1.3 Activar RLS en todas las tablas `public` creadas y revocar privilegios directos. Evidencia estática; permisos efectivos pendientes.
 - [x] 1.4 Definir `public_reports` con estados MVP, dirección y campos de la copia pública, sin identidad ni datos de la original. Evidencia estática; consulta real pendiente.
 
@@ -26,6 +26,9 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 - [x] 3.5 Rechazar un `Content-Length` superior al máximo multipart antes de leer el cuerpo y rechazar archivos reales mayores de 4 MiB antes de leer sus bytes o reclamar. Evidencia unitaria y estática en `tests/request-size.test.ts`, `tests/service.test.ts` y `tests/migrations-static.test.mjs`.
 - [x] 3.6 Validar listados y detalle con validadores del contrato sobre copias temporales que agregan una fecha solo para la comprobación; mantener el DTO real sin `expiresAt` y los tests que muestran su rechazo contractual. Evidencia unitaria en `tests/service.test.ts`.
 - [x] 3.7 No filtrar mensajes internos de SQL, Storage, rutas ni IDs en respuestas de error. Evidencia unitaria y estática en tests de servicios y `tests/migrations-static.test.mjs`.
+- [x] 3.8 Exponer en `public_reports` las fechas como texto UTC con milisegundos y `Z` (PostgREST serializa `timestamptz` con microsegundos y `+00:00`, que el contrato rechaza) y paginar sobre esas mismas columnas. Evidencia unitaria y estática en `tests/service.test.ts` y `tests/migrations-static.test.mjs`; formato real pendiente de base.
+- [x] 3.9 Rechazar con 403 `FORBIDDEN` los POST de publicación y confirmación que llegan desde otro sitio (`Origin` o `Sec-Fetch-Site`). Evidencia unitaria en `tests/same-origin.test.ts`.
+- [x] 3.10 Subir y compensar las fotos solo con el cliente del servidor (`SUPABASE_SECRET_KEY`) y quitar las policies de cliente en Storage (D1). Evidencia unitaria y estática en `tests/service.test.ts` y `tests/migrations-static.test.mjs`; rechazo efectivo pendiente de base (5.7).
 
 ## 4. Rutas y confirmaciones
 
@@ -44,7 +47,7 @@ Las casillas separan evidencia unitaria con simulación, revisión estática y p
 - [ ] 5.4 Probar confirmaciones concurrentes de una cuenta y una sola fila.
 - [ ] 5.5 Probar una autora y tres confirmadoras concurrentes, tres filas y una sola transición a `citizen-verification`.
 - [ ] 5.6 Probar rechazo de `confirm_report` sin sesión.
-- [ ] 5.7 Probar claim concurrente/replay y acceso anónimo a la copia pública frente al original privado.
+- [ ] 5.7 Probar claim concurrente/replay, acceso anónimo a la copia pública frente al original privado y rechazo de subidas o borrados directos de un vecino en Storage.
 - [ ] 5.8 Revisar Security Advisor y registrar hallazgos, objetos, severidad y resolución según `design.md`.
 - [x] 5.9 Preparar `scripts/integration/check-reports-cloud.mjs` con guardias de producción/confirmación/claves, sin creación de cuentas ni impresión de credenciales. Incluye los casos del cuarto claim y reporte 11. La inspección y `node --check` son solo evidencia estática; no se conectó a una base.
 - [x] 5.10 Probar estáticamente firmas RPC, `SECURITY DEFINER`, `search_path`, grants, RLS, vistas, policies y orden de migraciones en `tests/migrations-static.test.mjs`.

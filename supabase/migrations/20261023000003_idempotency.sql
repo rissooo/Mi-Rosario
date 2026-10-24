@@ -1,4 +1,4 @@
--- Reserva idempotencia, publica reportes atómicamente y limita Storage al flujo activo.
+-- Reserva idempotencia, publica reportes atómicamente y deja Storage solo al servidor.
 
 CREATE TABLE IF NOT EXISTS public.idempotency_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -512,114 +512,13 @@ BEGIN
 END;
 $$;
 
--- Helpers de políticas: validan que cada objeto corresponda a un claim propio activo.
-CREATE OR REPLACE FUNCTION public.can_upload_report_object(
-  p_bucket_id TEXT,
-  p_name TEXT
-)
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  v_user_id UUID := auth.uid();
-  v_report_id TEXT;
-  v_extension TEXT;
-  v_parts TEXT[];
-BEGIN
-  IF v_user_id IS NULL THEN
-    RETURN false;
-  END IF;
-
-  IF p_bucket_id = 'reports-originals' THEN
-    v_parts := storage.foldername(p_name);
-    IF array_length(v_parts, 1) <> 2
-       OR v_parts[1] <> v_user_id::text
-       OR split_part(p_name, '/', 3) NOT IN (
-         'original.jpg', 'original.jpeg', 'original.png', 'original.webp'
-       ) THEN
-      RETURN false;
-    END IF;
-    v_report_id := v_parts[2];
-  ELSIF p_bucket_id = 'reports-public' THEN
-    IF position('/' IN p_name) > 0 OR array_length(string_to_array(p_name, '.'), 1) <> 2 THEN
-      RETURN false;
-    END IF;
-    v_report_id := split_part(p_name, '.', 1);
-    v_extension := lower(split_part(p_name, '.', 2));
-    IF v_extension NOT IN ('jpg', 'jpeg', 'png', 'webp') THEN
-      RETURN false;
-    END IF;
-  ELSE
-    RETURN false;
-  END IF;
-
-  RETURN EXISTS (
-    SELECT 1
-    FROM public.idempotency_keys k
-    WHERE k.user_id = v_user_id
-      AND k.report_id::text = v_report_id
-      AND k.status = 'in_progress'
-      AND k.locked_until > pg_catalog.clock_timestamp()
-  );
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.can_delete_unpublished_report_object(
-  p_bucket_id TEXT,
-  p_name TEXT
-)
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-DECLARE
-  v_user_id UUID := auth.uid();
-  v_report_id TEXT;
-  v_parts TEXT[];
-BEGIN
-  IF v_user_id IS NULL THEN
-    RETURN false;
-  END IF;
-
-  IF p_bucket_id = 'reports-originals' THEN
-    v_parts := storage.foldername(p_name);
-    IF array_length(v_parts, 1) <> 2
-       OR v_parts[1] <> v_user_id::text
-       OR split_part(p_name, '/', 3) NOT IN (
-         'original.jpg', 'original.jpeg', 'original.png', 'original.webp'
-       ) THEN
-      RETURN false;
-    END IF;
-    v_report_id := v_parts[2];
-  ELSIF p_bucket_id = 'reports-public' THEN
-    IF position('/' IN p_name) > 0 OR array_length(string_to_array(p_name, '.'), 1) <> 2 THEN
-      RETURN false;
-    END IF;
-    v_report_id := split_part(p_name, '.', 1);
-    IF lower(split_part(p_name, '.', 2)) NOT IN ('jpg', 'jpeg', 'png', 'webp') THEN
-      RETURN false;
-    END IF;
-  ELSE
-    RETURN false;
-  END IF;
-
-  RETURN EXISTS (
-    SELECT 1
-    FROM public.idempotency_keys k
-    WHERE k.user_id = v_user_id
-      AND k.report_id::text = v_report_id
-      AND k.status = 'in_progress'
-      AND k.locked_until > pg_catalog.clock_timestamp()
-  ) AND NOT EXISTS (
-    SELECT 1
-    FROM public.reports r
-    WHERE r.id::text = v_report_id AND r.user_id = v_user_id
-  );
-END;
-$$;
+-- Solo el servidor escribe en los buckets de reportes, con la clave secreta y después de
+-- sanear la foto. Los clientes no tienen políticas de INSERT, UPDATE, SELECT ni DELETE en
+-- storage.objects para estos buckets: un vecino no puede saltear el saneado subiendo
+-- directo con la clave publicable. publish_report sigue verificando que existan los
+-- dos objetos con el MIME y el tamaño declarados.
+DROP FUNCTION IF EXISTS public.can_upload_report_object(TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.can_delete_unpublished_report_object(TEXT, TEXT);
 
 DROP POLICY IF EXISTS "Allow authenticated user upload to own folder" ON storage.objects;
 DROP POLICY IF EXISTS "Allow user delete own pending upload" ON storage.objects;
@@ -627,40 +526,6 @@ DROP POLICY IF EXISTS "Allow authenticated upload for active report claim" ON st
 DROP POLICY IF EXISTS "Allow read for active report claim upsert" ON storage.objects;
 DROP POLICY IF EXISTS "Allow update for active report claim upsert" ON storage.objects;
 DROP POLICY IF EXISTS "Allow delete of unpublished report photos" ON storage.objects;
-
-CREATE POLICY "Allow authenticated upload for active report claim"
-ON storage.objects FOR INSERT TO authenticated
-WITH CHECK (
-  bucket_id IN ('reports-originals', 'reports-public')
-  AND (SELECT public.can_upload_report_object(bucket_id, name))
-);
-
--- Storage necesita SELECT y UPDATE, además de INSERT, para reemplazar con upsert.
--- Las políticas se limitan al mismo usuario y a su claim in_progress.
-CREATE POLICY "Allow read for active report claim upsert"
-ON storage.objects FOR SELECT TO authenticated
-USING (
-  bucket_id IN ('reports-originals', 'reports-public')
-  AND (SELECT public.can_upload_report_object(bucket_id, name))
-);
-
-CREATE POLICY "Allow update for active report claim upsert"
-ON storage.objects FOR UPDATE TO authenticated
-USING (
-  bucket_id IN ('reports-originals', 'reports-public')
-  AND (SELECT public.can_upload_report_object(bucket_id, name))
-)
-WITH CHECK (
-  bucket_id IN ('reports-originals', 'reports-public')
-  AND (SELECT public.can_upload_report_object(bucket_id, name))
-);
-
-CREATE POLICY "Allow delete of unpublished report photos"
-ON storage.objects FOR DELETE TO authenticated
-USING (
-  bucket_id IN ('reports-originals', 'reports-public')
-  AND (SELECT public.can_delete_unpublished_report_object(bucket_id, name))
-);
 
 REVOKE ALL PRIVILEGES ON FUNCTION public.claim_idempotency_key(UUID, TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.claim_idempotency_key(UUID, TEXT) TO authenticated;
@@ -676,9 +541,3 @@ GRANT EXECUTE ON FUNCTION public.publish_report(
 
 REVOKE ALL PRIVILEGES ON FUNCTION public.fail_idempotency_key(UUID, UUID, TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fail_idempotency_key(UUID, UUID, TEXT) TO authenticated;
-
-REVOKE ALL PRIVILEGES ON FUNCTION public.can_upload_report_object(TEXT, TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.can_upload_report_object(TEXT, TEXT) TO authenticated;
-
-REVOKE ALL PRIVILEGES ON FUNCTION public.can_delete_unpublished_report_object(TEXT, TEXT) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.can_delete_unpublished_report_object(TEXT, TEXT) TO authenticated;

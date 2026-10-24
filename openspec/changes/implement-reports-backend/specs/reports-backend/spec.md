@@ -144,14 +144,16 @@ Las tablas públicas creadas SHALL activar RLS. Las funciones `SECURITY DEFINER`
 - **WHEN** una cuenta intenta insertar directamente un reporte o una confirmación
 - **THEN** la operación es rechazada
 
-#### Scenario: Rutas de Storage ligadas al claim
+#### Scenario: Solo el servidor escribe en Storage
 
-- **WHEN** una cuenta sube o elimina un objeto de reportes
-- **THEN** la policy y helper vinculan ruta, `report_id` reservado, clave `in_progress` vigente y `auth.uid()` de la misma cuenta
+- **WHEN** el handler sube las fotos de un claim propio
+- **THEN** usa el cliente del servidor con la clave secreta, después de sanear la copia y de que el claim devolvió el `report_id` de esa cuenta
 - **THEN** la original permanece privada y la copia pública no contiene el ID de usuario en su ruta
+- **WHEN** una cuenta autenticada intenta subir, reemplazar o borrar un objeto de reportes directamente con la clave publicable
+- **THEN** Storage lo rechaza porque no existe ninguna policy de cliente sobre esos buckets
 
 #### Scenario: Límites de verificación en SQL
 
-- **WHEN** una cuenta autenticada invoca directamente Storage o una RPC con clave publicable
-- **THEN** las comprobaciones SQL validan identidad, ownership, claim, estado, rutas, hash guardado, metadatos declarados, cuotas y restricciones `CHECK`
-- **THEN** se reconoce que SQL no verifica la firma de los bytes ni que la copia perdió metadatos; el handler sí vuelve a sanear, pero no es una garantía frente a clientes hostiles
+- **WHEN** una cuenta autenticada invoca directamente una RPC con clave publicable
+- **THEN** las comprobaciones SQL validan identidad, ownership, claim, estado, rutas, existencia de los objetos subidos por el servidor, hash guardado, metadatos declarados, cuotas y restricciones `CHECK`
+- **THEN** sin fotos subidas por el servidor para ese claim, `publish_report` rechaza la publicación

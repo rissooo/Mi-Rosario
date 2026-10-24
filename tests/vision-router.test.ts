@@ -112,6 +112,8 @@ test("el registro que falla no interfiere con el análisis", async () => {
 test("Gemini 3.8 no envía candidateCount y utiliza el constructor compartido", () => {
   const request = readFileSync(join(process.cwd(), "lib/vision/gemini-request.ts"), "utf8");
   const provider = readFileSync(join(process.cwd(), "lib/vision/provider.ts"), "utf8");
-  assert.equal(/\bcandidateCount\s*:/.test(request), false);
+  // Ignorar comentarios: buscamos parámetros enviados, no menciones explicativas.
+  const executable = request.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.equal(/\bcandidateCount\s*:/.test(executable), false);
   assert.match(provider, /generate\(createGeminiGenerateParams\(/);
 });

@@ -1,4 +1,4 @@
-# Límite de reportes — Agus
+# Límite de reportes
 
 Reservado para el change aparte de `feature/reports-backend`. Esta carpeta no contiene ninguna implementación de persistencia.
 

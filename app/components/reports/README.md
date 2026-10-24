@@ -1,4 +1,4 @@
-# Límite de la interfaz de reportes — Fran
+# Límite de la interfaz de reportes
 
 Reservado para `feature/interface-map`. Acá no se implementa ningún componente ni pantalla; un README no expone una ruta de Next.js.
 
@@ -33,7 +33,7 @@ Errores que se simulan en la confirmación (solo en el POST) con `?simular=`:
 | `REPORT_NOT_FOUND` | 404, sin opción de confirmar |
 | `INTERNAL_ERROR` | 500, con "Reintentar" |
 
-**Para conectar el backend** (PR #6 de Agus):
+**Para conectar el backend** (PR #6 del backend):
 
 1. Reemplazar el cuerpo de `getMyConfirmation` y `confirmReport` por un `fetch` a esos endpoints con `cache: "no-store"`, porque la respuesta es privada.
 2. Conservar la validación del contrato.

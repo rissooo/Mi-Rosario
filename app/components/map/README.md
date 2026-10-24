@@ -1,4 +1,4 @@
-# Límite del mapa — Fran
+# Límite del mapa
 
 Reservado para el change de interfaz aparte. Acá no se agrega ninguna librería de mapas, componente ni ruta.
 

@@ -6,6 +6,8 @@ import { useCallback, useEffect, useReducer, useRef, useState, type RefObject } 
 import { MapContainer, Marker, useMap, useMapEvents } from "react-leaflet";
 import { INITIAL_CATEGORIES } from "@/lib/contracts/categories";
 import type { Report, Severity } from "@/lib/contracts/reports";
+import { ConfirmationAction } from "@/app/components/reports/ConfirmationAction";
+import { parseSimulatedConfirmationFailure, type SimulatedConfirmationFailure } from "@/app/components/reports/confirmation-source";
 import { ReportDetail } from "@/app/components/reports/ReportDetail";
 import { LoginPrompt } from "@/app/components/reports/LoginPrompt";
 import { ReportPanel } from "@/app/components/reports/ReportPanel";
@@ -13,7 +15,7 @@ import { draftReducer, emptyDraft, hasDraftData, type Point } from "@/app/compon
 import { parseSimulatedFailure, type SimulatedFailure } from "@/app/components/reports/report-publisher";
 import { useGeolocation } from "@/app/components/reports/use-geolocation";
 import { createClient } from "@/utils/supabase/client";
-import { loadAllReportsInBbox, toBbox, USING_SAMPLE_DATA } from "./report-source";
+import { loadAllReportsInBbox, toBbox, USING_SAMPLE_DATA, type SampleReportChanges } from "./report-source";
 import { isInsideRosario } from "./rosario-boundary";
 import { PANNING_BOUNDS, ROSARIO_CENTER, RosarioMask } from "./RosarioMask";
 
@@ -128,6 +130,11 @@ export default function ReportsMap() {
   const lastBbox = useRef<string | null>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const simulate = useRef<SimulatedFailure | null>(null);
+  const simulateConfirmation = useRef<SimulatedConfirmationFailure | null>(null);
+  // Reporte a abrir al volver del login con ?reporte=<id>; se busca en la primera carga que termina.
+  const pendingReportId = useRef<string | null>(null);
+  // null mientras no se sabe; la verificación real la hacen el backend (401) y RLS.
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
   const load = useCallback(async (bbox: string) => {
     const requestId = ++latestRequest.current;
@@ -139,6 +146,12 @@ export default function ReportsMap() {
       if (requestId !== latestRequest.current) return;
       setReports(next);
       setLoadState("ready");
+      if (pendingReportId.current) {
+        // Si el reporte ya no está, se descarta el pedido sin mostrar error.
+        const requested = next.find((report) => report.id === pendingReportId.current);
+        pendingReportId.current = null;
+        if (requested) setSelected(requested);
+      }
     } catch {
       if (requestId === latestRequest.current) setLoadState("error");
     }
@@ -159,6 +172,7 @@ export default function ReportsMap() {
 
   /** Con sesión empieza el reporte; sin sesión muestra el login. La verificación real la hace la publicación (401). */
   const applySession = useCallback((hasSession: boolean) => {
+    setSignedIn(hasSession);
     setLoginNeeded(!hasSession);
     if (!hasSession) return;
     setSelected(null);
@@ -168,20 +182,34 @@ export default function ReportsMap() {
 
   const startReport = useCallback(() => hasSession().then(applySession), [applySession]);
 
-  // Al volver del login con ?reportar=1 se abre el reporte; ?simular= solo vale en el modo de ejemplo.
-  // Corre una sola vez: si no, el error simulado se volvería a cargar en cada reintento.
+  // Al volver del login, ?reportar=1 abre el reporte nuevo y ?reporte=<id> el detalle de ese reporte;
+  // ?simular= solo vale en el modo de ejemplo. Corre una sola vez: si no, el error simulado se
+  // volvería a cargar en cada reintento.
   const readUrlOnce = useRef(false);
   useEffect(() => {
     if (readUrlOnce.current) return;
     readUrlOnce.current = true;
     const params = new URLSearchParams(window.location.search);
-    if (USING_SAMPLE_DATA) simulate.current = parseSimulatedFailure(params.get("simular"));
-    if (params.get("reportar") !== "1") return;
-    params.delete("reportar");
-    const query = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
-    void hasSession().then(applySession);
+    if (USING_SAMPLE_DATA) {
+      simulate.current = parseSimulatedFailure(params.get("simular"));
+      simulateConfirmation.current = parseSimulatedConfirmationFailure(params.get("simular"));
+    }
+    const startReporting = params.get("reportar") === "1";
+    pendingReportId.current = startReporting ? null : params.get("reporte");
+    if (params.has("reportar") || params.has("reporte")) {
+      params.delete("reportar");
+      params.delete("reporte");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    }
+    void hasSession().then(startReporting ? applySession : setSignedIn);
   }, [applySession]);
+
+  const applyConfirmation = useCallback((id: string, changes: SampleReportChanges) => {
+    // Se usan los valores que devolvió el servidor, sin recalcular la etapa.
+    setReports((current) => current.map((report) => (report.id === id ? { ...report, ...changes } : report)));
+    setSelected((current) => (current?.id === id ? { ...current, ...changes } : current));
+  }, []);
 
   const insideRosario = center ? isInsideRosario(center.latitude, center.longitude) : false;
 
@@ -346,7 +374,24 @@ export default function ReportsMap() {
       )}
 
       {mode === "viewing" && selected && (
-        <ReportDetail key={selected.id} ref={panelRef} report={selected} onClose={() => setSelected(null)} />
+        <ReportDetail
+          key={selected.id}
+          ref={panelRef}
+          report={selected}
+          onClose={() => setSelected(null)}
+          confirmation={
+            <ConfirmationAction
+              reportId={selected.id}
+              signedIn={signedIn}
+              onConfirmed={(changes) => applyConfirmation(selected.id, changes)}
+              takeSimulatedFailure={() => {
+                const failure = simulateConfirmation.current;
+                simulateConfirmation.current = null;
+                return failure;
+              }}
+            />
+          }
+        />
       )}
     </div>
   );

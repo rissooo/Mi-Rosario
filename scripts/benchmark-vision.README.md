@@ -25,3 +25,15 @@ Ejecuta `node --env-file=.env.local scripts/benchmark-vision.mjs --cases ./casos
 Usa solo imagenes de prueba sin datos personales. Las fotografias se envian a los servicios externos que hayas configurado. No compartas credenciales ni fotografias sensibles. Los resultados no prueban funcionamiento en Vercel o Supabase; tampoco constituyen un respaldo automatico en la app.
 
 Documentacion: Google https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash ; OpenAI https://developers.openai.com/api/docs/models/gpt-5.6-luna ; Groq https://console.groq.com/docs/models .
+
+## OpenAI preparado, pero apagado por defecto
+
+Aunque `OPENAI_API_KEY` exista en `.env.local`, el benchmark no llamara a OpenAI ni consumira creditos hasta que agregues `VISION_BENCHMARK_OPENAI=1`. Si el valor falta o es distinto de `1`, solo prueba Gemini y Groq cuando sus respectivas claves esten configuradas.
+
+Para activarlo mas adelante, despues de cargar saldo en la API, agrega en `.env.local`:
+
+```dotenv
+VISION_BENCHMARK_OPENAI=1
+```
+
+Para apagarlo de nuevo, cambialo a `0` o elimina esa linea. No hace falta modificar codigo ni regenerar claves. Esto afecta **solo al benchmark**, no activa un respaldo OpenAI en el endpoint de Mi Rosario ni habilita Vision en Vercel. No publiques tus claves ni incluyas `.env.local` en un commit.

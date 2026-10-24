@@ -120,7 +120,7 @@ test("cuando OpenAI no está habilitado, solo se intenta Groq", async () => {
 
 test("Vercel Vision se niega salvo con flag, HTTPS exacto, usuario autorizado y clave", () => {
   const base = {
-    VERCEL: "1", VERCEL_ENV: "preview", VISION_DEPLOY_ENABLED: "1", GROQ_API_KEY: "fake-key",
+    VERCEL: "1", VERCEL_ENV: "preview", VISION_DEPLOY_ENABLED: "1", OPENAI_API_KEY: "fake-key",
     VISION_DEPLOY_ORIGINS: "https://mi-rosario-prueba.vercel.app",
     VISION_DEPLOY_USER_IDS: "123e4567-e89b-42d3-a456-426614174000",
   };
@@ -130,7 +130,7 @@ test("Vercel Vision se niega salvo con flag, HTTPS exacto, usuario autorizado y 
   assert.equal(valid.allowedUserIds.has("123e4567-e89b-42d3-a456-426614174000"), true);
   for (const extra of [
     { VERCEL: "" }, { VERCEL_ENV: "production" }, { VISION_DEPLOY_ENABLED: "0" },
-    { GROQ_API_KEY: "" },
+    { OPENAI_API_KEY: "" },
     { VISION_DEPLOY_ORIGINS: "https://*.vercel.app" },
     { VISION_DEPLOY_ORIGINS: "http://mi-rosario-prueba.vercel.app" },
     { VISION_DEPLOY_ORIGINS: "https://mi-rosario-prueba.vercel.app/" },
@@ -163,7 +163,7 @@ test("cupo distribuido requiere autorización y error controlado ante fallo o l�
 
 test("Production permanece apagado sin interruptor y modo explícitos", () => {
   const base = {
-    VERCEL: "1", VERCEL_ENV: "production", GROQ_API_KEY: "fake-key",
+    VERCEL: "1", VERCEL_ENV: "production", OPENAI_API_KEY: "fake-key",
     VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app",
     VISION_PRODUCTION_ACCESS: "public", VISION_PRODUCTION_ENABLED: "1",
   };
@@ -181,7 +181,7 @@ test("Production permanece apagado sin interruptor y modo explícitos", () => {
     { VISION_PRODUCTION_ORIGINS: "http://mi-rosario-psi.vercel.app" },
     { VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app,https://mi-rosario-psi.vercel.app" },
     { VISION_PRODUCTION_USER_IDS: id },
-    { GROQ_API_KEY: "" },
+    { OPENAI_API_KEY: "" },
     { VERCEL_ENV: "preview" },
     { VERCEL: "" },
   ]) assert.equal(productionVisionConfig({ ...base, ...changes }).enabled, false, JSON.stringify(changes));
@@ -191,7 +191,7 @@ test("Production invited admite solo UUIDs explícitos; configuración Preview n
   const approved = "123e4567-e89b-42d3-a456-426614174000";
   const other = "123e4567-e89b-42d3-a456-426614174001";
   const base = {
-    VERCEL: "1", VERCEL_ENV: "production", GROQ_API_KEY: "fake-key",
+    VERCEL: "1", VERCEL_ENV: "production", OPENAI_API_KEY: "fake-key",
     VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app",
     VISION_PRODUCTION_ACCESS: "invited", VISION_PRODUCTION_ENABLED: "1",
     VISION_PRODUCTION_USER_IDS: approved,
@@ -219,7 +219,7 @@ test("Production invited admite solo UUIDs explícitos; configuración Preview n
 test("Production sigue usando RPC de cupos y falla cerrado si falla Supabase", async () => {
   const approved = "123e4567-e89b-42d3-a456-426614174000";
   const config = productionVisionConfig({
-    VERCEL: "1", VERCEL_ENV: "production", GROQ_API_KEY: "fake-key",
+    VERCEL: "1", VERCEL_ENV: "production", OPENAI_API_KEY: "fake-key",
     VISION_PRODUCTION_ORIGINS: "https://mi-rosario-psi.vercel.app",
     VISION_PRODUCTION_ACCESS: "public", VISION_PRODUCTION_ENABLED: "1",
   });
@@ -236,4 +236,39 @@ test("Production sigue usando RPC de cupos y falla cerrado si falla Supabase", a
   );
   await assert.rejects(Promise.resolve(failed.acquire(approved)),
     (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
+});
+
+test("OpenAI informa solo el status HTTP de un rechazo y responde ANALYSIS_UNAVAILABLE", async () => {
+  const { createOpenAIVisionProvider } = await import("../lib/vision/openai");
+  const statuses: number[] = [];
+  const transport = (async () => new Response("{}", { status: 429 })) as typeof fetch;
+  const provider = createOpenAIVisionProvider("sk-prueba", transport, (status) => statuses.push(status));
+  await assert.rejects(provider.analyze(image, new AbortController().signal, 1000),
+    (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
+  assert.deepEqual(statuses, [429]);
+});
+
+test("un observador que falla no cambia el error de OpenAI", async () => {
+  const { createOpenAIVisionProvider } = await import("../lib/vision/openai");
+  const transport = (async () => new Response("{}", { status: 401 })) as typeof fetch;
+  const provider = createOpenAIVisionProvider("sk-prueba", transport, () => { throw new Error("log caído"); });
+  await assert.rejects(provider.analyze(image, new AbortController().signal, 1000),
+    (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
+});
+
+test("en Vercel la IA usa solo OpenAI y sus logs no incluyen imagen, clave ni texto", async () => {
+  const { visionLogReporters, OPENAI_ATTEMPT_MS, previewVisionProvider } = await import("../lib/vision/preview");
+  assert.throws(() => previewVisionProvider({ GROQ_API_KEY: "gsk_prueba" }),
+    (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
+  const lines: string[] = [];
+  const reporters = visionLogReporters((line) => lines.push(line));
+  reporters.providerFailure(401);
+  reporters.attempt({ provider: "openai", outcome: "timeout", durationMs: 18000 });
+  reporters.attempt({ provider: "openai", outcome: "success", durationMs: 5000 });
+  assert.deepEqual(lines.map((line) => JSON.parse(line)), [
+    { source: "vision", provider: "openai", outcome: "provider_http", status: 401 },
+    { source: "vision", provider: "openai", outcome: "timeout", durationMs: 18000 },
+  ]);
+  assert.ok(lines.every((line) => !/sk-|base64|data:image/.test(line)));
+  assert.equal(OPENAI_ATTEMPT_MS, 18_000);
 });

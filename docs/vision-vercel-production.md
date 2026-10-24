@@ -3,6 +3,8 @@
 > **Estado: implementación propuesta, apagada por defecto. NO fusionar ni activar sin revisión de cuota SQL y pruebas remotas.**
 > Este documento complementa `docs/vision-vercel-preview.md`; las variables de Preview son independientes de Production.
 
+> **Actualización 24/10/2026: en Vercel la IA usa solo OpenAI.** Groq quedó fuera porque su plan gratis permite 8.000 tokens por minuto por organización (2 o 3 análisis por minuto para toda la app). Las variables necesarias en Production son `OPENAI_API_KEY` (Secret), `VISION_PRODUCTION_ENABLED=1`, `VISION_PRODUCTION_ORIGINS` y `VISION_PRODUCTION_ACCESS` (`public` o `invited` con `VISION_PRODUCTION_USER_IDS`). `GROQ_API_KEY` y `VISION_PRODUCTION_OPENAI_ENABLED` ya no se usan en Vercel. OpenAI tiene 18 s por intento; si falla, los logs de Vercel muestran `{"source":"vision",...}` con el status HTTP (401 clave, 429 sin saldo o límite) o `timeout`. Las menciones a Groq de abajo describen la configuración anterior.
+
 ## Diseño
 
 - El endpoint de IA se ejecuta en Vercel (no en la PC de Valen).

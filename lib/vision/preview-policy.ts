@@ -43,7 +43,7 @@ function invitedUsers(raw: string | undefined): Set<string> | null {
 /** Preview: solo invitados, deshabilitado por defecto. */
 export function previewVisionConfig(env: Env): DeployedVisionConfig {
   if (env.VERCEL !== "1" || env.VERCEL_ENV !== "preview" ||
-      env.VISION_DEPLOY_ENABLED !== "1" || !env.GROQ_API_KEY?.trim()) return disabled();
+      env.VISION_DEPLOY_ENABLED !== "1" || !env.OPENAI_API_KEY?.trim()) return disabled();
   const origins = exactOrigins(env.VISION_DEPLOY_ORIGINS);
   const userIds = invitedUsers(env.VISION_DEPLOY_USER_IDS);
   if (!origins || !userIds) return disabled();
@@ -58,7 +58,7 @@ export function previewVisionConfig(env: Env): DeployedVisionConfig {
  */
 export function productionVisionConfig(env: Env): DeployedVisionConfig {
   if (env.VERCEL !== "1" || env.VERCEL_ENV !== "production" ||
-      env.VISION_PRODUCTION_ENABLED !== "1" || !env.GROQ_API_KEY?.trim()) return disabled();
+      env.VISION_PRODUCTION_ENABLED !== "1" || !env.OPENAI_API_KEY?.trim()) return disabled();
   const origins = exactOrigins(env.VISION_PRODUCTION_ORIGINS);
   if (!origins) return disabled();
   if (env.VISION_PRODUCTION_ACCESS === "invited") {

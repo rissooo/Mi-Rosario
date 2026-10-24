@@ -80,3 +80,29 @@ test("sin respuestas válidas, el sistema falla para habilitar carga manual", as
   await assert.rejects(router.analyze(image, new AbortController().signal, 250),
     (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
 });
+
+test("el registro por intento informa proveedor, resultado y duración sin payload", async () => {
+  const events: unknown[] = [];
+  const router = createFallbackVisionProvider([
+    { name: "groq", provider: fails(), limitMs: 100 },
+    { name: "gemini", provider: success(), limitMs: 100 },
+  ], (event) => { events.push(event); });
+  assert.deepEqual(await router.analyze(image, new AbortController().signal, 250), suggestion);
+  assert.equal(events.length, 2);
+  assert.deepEqual(events.map((item) => (item as { provider: string; outcome: string }).provider),
+    ["groq", "gemini"]);
+  assert.deepEqual(events.map((item) => (item as { provider: string; outcome: string }).outcome),
+    ["failed", "success"]);
+  for (const event of events) {
+    const record = event as Record<string, unknown>;
+    assert.deepEqual(Object.keys(record).sort(), ["durationMs", "outcome", "provider"]);
+    assert.equal(typeof record.durationMs, "number");
+  }
+});
+
+test("el registro que falla no interfiere con el análisis", async () => {
+  const router = createFallbackVisionProvider([
+    { name: "groq", provider: success(), limitMs: 100 },
+  ], () => { throw new Error("falló el destino de logs"); });
+  assert.deepEqual(await router.analyze(image, new AbortController().signal, 150), suggestion);
+});

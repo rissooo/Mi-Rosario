@@ -1,5 +1,7 @@
 # Vision en Vercel Preview — despliegue con autorización explícita
 
+> **Actualización 24/10/2026:** en Vercel (Preview y Production) la IA usa solo OpenAI, con `OPENAI_API_KEY` y 18 s por intento. `GROQ_API_KEY` y `VISION_DEPLOY_OPENAI_ENABLED` ya no se usan en Vercel; Groq sigue disponible solo en local. Ver `vision-vercel-production.md`.
+
 > **Estado:** implementación propuesta para revisión; **apagada por defecto**.
 > Esta rama parte de `feature/report-form-vision-assist-20261024` (PR #12); no fusionar en `main` sin revisar dependencias.
 

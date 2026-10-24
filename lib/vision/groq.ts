@@ -15,15 +15,8 @@ function groqFailure(status: number): VisionError {
       ? "ANALYSIS_UNAVAILABLE" : "ANALYSIS_FAILED");
 }
 
-/** Recibe solo el status HTTP de un rechazo de Groq; nunca la imagen, la clave ni el cuerpo. */
-export type GroqFailureReporter = (status: number) => void;
-
 /** Usa la misma solicitud multimodal estructurada que dio JSON válido en el benchmark. */
-export function createGroqVisionProvider(
-  apiKey: string,
-  transport: typeof fetch = fetch,
-  reportFailure?: GroqFailureReporter,
-): VisionProvider {
+export function createGroqVisionProvider(apiKey: string, transport: typeof fetch = fetch): VisionProvider {
   if (!apiKey.trim()) throw new VisionError("ANALYSIS_UNAVAILABLE");
   return {
     async analyze(image, signal, remainingMs) {
@@ -53,11 +46,7 @@ export function createGroqVisionProvider(
             max_completion_tokens: 1024,
           }),
         });
-        if (!response.ok) {
-          // Un fallo del observador nunca cambia la respuesta del endpoint.
-          try { reportFailure?.(response.status); } catch {}
-          throw groqFailure(response.status);
-        }
+        if (!response.ok) throw groqFailure(response.status);
         if (Number(response.headers.get("content-length") || 0) > MAX_RESPONSE_BYTES) throw new VisionError("ANALYSIS_FAILED");
         const raw = await response.text();
         if (Buffer.byteLength(raw, "utf8") > MAX_RESPONSE_BYTES) throw new VisionError("ANALYSIS_FAILED");

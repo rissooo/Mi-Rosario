@@ -8,11 +8,18 @@ const MODEL = "gpt-6-luna";
 const ENDPOINT = "https://api.openai.com/v1/responses";
 const MAX_RESPONSE_BYTES = 64 * 1024;
 
+/** Recibe solo el status HTTP de un rechazo de OpenAI; nunca la imagen, la clave ni el cuerpo. */
+export type OpenAIFailureReporter = (status: number) => void;
+
 /**
- * Nunca se instancia salvo con VISION_LOCAL_OPENAI_REAL=1.
- * La clave en .env.local, por sí sola, NO habilita gasto.
+ * Proveedor de la IA desplegada en Vercel. En local solo se instancia con VISION_LOCAL_OPENAI_REAL=1:
+ * la clave en .env.local, por sí sola, NO habilita gasto.
  */
-export function createOpenAIVisionProvider(apiKey: string, transport: typeof fetch = fetch): VisionProvider {
+export function createOpenAIVisionProvider(
+  apiKey: string,
+  transport: typeof fetch = fetch,
+  reportFailure?: OpenAIFailureReporter,
+): VisionProvider {
   if (!apiKey.trim()) throw new VisionError("ANALYSIS_UNAVAILABLE");
   return {
     async analyze(image, signal, remainingMs) {
@@ -45,6 +52,8 @@ export function createOpenAIVisionProvider(apiKey: string, transport: typeof fet
           }),
         });
         if (!response.ok) {
+          // Un fallo del observador nunca cambia la respuesta del endpoint.
+          try { reportFailure?.(response.status); } catch {}
           throw new VisionError(response.status === 408 || response.status === 504
             ? "ANALYSIS_TIMEOUT" : response.status === 401 || response.status === 403 ||
             response.status === 429 || response.status >= 500 ? "ANALYSIS_UNAVAILABLE" : "ANALYSIS_FAILED");

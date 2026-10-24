@@ -1,3 +1,4 @@
+import { previewVisionConfig, createPreviewAdmission } from "../lib/vision/preview-policy";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createFallbackVisionProvider } from "../lib/vision/router";
@@ -115,4 +116,47 @@ test("cuando OpenAI no está habilitado, solo se intenta Groq", async () => {
   await assert.rejects(router.analyze(image, new AbortController().signal, 150),
     (error: unknown) => error instanceof VisionError && error.code === "ANALYSIS_UNAVAILABLE");
   assert.equal(called, 1);
+});
+
+test("Vercel Vision se niega salvo con flag, HTTPS exacto, usuario autorizado y clave", () => {
+  const base = {
+    VERCEL: "1", VISION_DEPLOY_ENABLED: "1", GROQ_API_KEY: "fake-key",
+    VISION_DEPLOY_ORIGINS: "https://mi-rosario-prueba.vercel.app",
+    VISION_DEPLOY_USER_IDS: "123e4567-e89b-42d3-a456-426614174000",
+  };
+  const valid = previewVisionConfig(base);
+  assert.equal(valid.enabled, true);
+  assert.deepEqual(valid.allowedOrigins, ["https://mi-rosario-prueba.vercel.app"]);
+  assert.equal(valid.allowedUserIds.has("123e4567-e89b-42d3-a456-426614174000"), true);
+  for (const extra of [
+    { VERCEL: "" }, { VISION_DEPLOY_ENABLED: "0" },
+    { GROQ_API_KEY: "" },
+    { VISION_DEPLOY_ORIGINS: "https://*.vercel.app" },
+    { VISION_DEPLOY_ORIGINS: "http://mi-rosario-prueba.vercel.app" },
+    { VISION_DEPLOY_ORIGINS: "https://mi-rosario-prueba.vercel.app/" },
+    { VISION_DEPLOY_ORIGINS: "https://evil.invalid,https://*.vercel.app" },
+    { VISION_DEPLOY_USER_IDS: "not-a-uuid" },
+  ]) {
+    assert.equal(previewVisionConfig({ ...base, ...extra }).enabled, false, JSON.stringify(extra));
+  }
+});
+
+test("cupo distribuido requiere autorización y error controlado ante fallo o límite", async () => {
+  let calls = 0;
+  const allowed = (id: string) => id === "approved";
+  const ok = createPreviewAdmission(async () => { calls++; return { data: true, error: null }; }, allowed);
+  await assert.rejects(Promise.resolve(ok.acquire("unknown")),
+    (error: unknown) => error instanceof VisionError && error.code === "FORBIDDEN");
+  assert.equal(calls, 0, "sin cuota ni API para usuarios no invitados");
+  const release = await ok.acquire("approved");
+  release();
+  assert.equal(calls, 1);
+  for (const [result, expected] of [
+    [{ data: false, error: null }, "ANALYSIS_UNAVAILABLE"],
+    [{ data: null, error: new Error("db down") }, "ANALYSIS_UNAVAILABLE"],
+  ] as const) {
+    const admission = createPreviewAdmission(async () => result, allowed);
+    await assert.rejects(Promise.resolve(admission.acquire("approved")),
+      (error: unknown) => error instanceof VisionError && error.code === expected);
+  }
 });

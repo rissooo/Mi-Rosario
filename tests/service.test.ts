@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MAX_IMAGE_BYTES, type ReportFields } from "../lib/contracts/reports";
-import { validateReport } from "../lib/contracts/validation";
+import { validateReport, validateReportList } from "../lib/contracts/validation";
 import {
   decodeCursor,
   encodeCursor,
@@ -282,6 +282,7 @@ test("listReportsService devuelve siempre la dirección de cada reporte", async 
   assert.equal(response.httpStatus, 200);
   assert.ok(response.result.data);
   if (response.result.data) {
+    assert.equal(validateReportList(response.result.data).valid, false);
     assert.deepEqual(response.result.data.items[0].location.address, { street: "Córdoba", number: 1250 });
     assert.equal(response.result.data.items[0].photo.url, "https://public.example/10000000-0000-4000-8000-000000000001.jpg");
     assert.equal(response.result.data.items[0].photo.byteSize, 1912);

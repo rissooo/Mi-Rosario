@@ -100,7 +100,7 @@ BEGIN
     p_payload_hash,
     'in_progress',
     gen_random_uuid(),
-    now() + interval '3 minutes',
+    pg_catalog.clock_timestamp() + interval '3 minutes',
     now() + interval '24 hours'
   )
   ON CONFLICT (user_id, key) DO NOTHING
@@ -112,15 +112,15 @@ BEGIN
     FROM public.idempotency_keys
     WHERE user_id = v_user_id
       AND status = 'in_progress'
-      AND locked_until > now();
+      AND locked_until > pg_catalog.clock_timestamp();
 
     IF v_active_claim_count > v_max_in_progress_claims THEN
-      SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(locked_until) - now())))::integer)
+      SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(locked_until) - pg_catalog.clock_timestamp())))::integer)
       INTO v_retry_after
       FROM public.idempotency_keys
       WHERE user_id = v_user_id
         AND status = 'in_progress'
-        AND locked_until > now()
+        AND locked_until > pg_catalog.clock_timestamp()
         AND id <> v_id;
 
       DELETE FROM public.idempotency_keys WHERE id = v_id;
@@ -137,14 +137,14 @@ BEGIN
     INTO v_published_count
     FROM public.reports
     WHERE user_id = v_user_id
-      AND created_at >= now() - interval '24 hours';
+      AND created_at >= pg_catalog.clock_timestamp() - interval '24 hours';
 
     IF v_published_count >= v_max_published_per_24h THEN
-      SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - now())))::integer)
+      SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - pg_catalog.clock_timestamp())))::integer)
       INTO v_retry_after
       FROM public.reports
       WHERE user_id = v_user_id
-        AND created_at >= now() - interval '24 hours';
+        AND created_at >= pg_catalog.clock_timestamp() - interval '24 hours';
 
       DELETE FROM public.idempotency_keys WHERE id = v_id;
       RETURN jsonb_build_object(
@@ -185,8 +185,8 @@ BEGIN
     );
   END IF;
 
-  IF v_existing_status = 'in_progress' AND v_locked_until > now() THEN
-    v_retry_after := GREATEST(1, CEIL(EXTRACT(EPOCH FROM (v_locked_until - now())))::integer);
+  IF v_existing_status = 'in_progress' AND v_locked_until > pg_catalog.clock_timestamp() THEN
+    v_retry_after := GREATEST(1, CEIL(EXTRACT(EPOCH FROM (v_locked_until - pg_catalog.clock_timestamp())))::integer);
     RETURN jsonb_build_object(
       'action', 'IN_PROGRESS',
       'status', 'in_progress',
@@ -201,16 +201,16 @@ BEGIN
   FROM public.idempotency_keys
   WHERE user_id = v_user_id
     AND status = 'in_progress'
-    AND locked_until > now()
+    AND locked_until > pg_catalog.clock_timestamp()
     AND id <> v_id;
 
   IF v_active_claim_count >= v_max_in_progress_claims THEN
-    SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(locked_until) - now())))::integer)
+    SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(locked_until) - pg_catalog.clock_timestamp())))::integer)
     INTO v_retry_after
     FROM public.idempotency_keys
     WHERE user_id = v_user_id
       AND status = 'in_progress'
-      AND locked_until > now()
+      AND locked_until > pg_catalog.clock_timestamp()
       AND id <> v_id;
 
     RETURN jsonb_build_object(
@@ -226,14 +226,14 @@ BEGIN
   INTO v_published_count
   FROM public.reports
   WHERE user_id = v_user_id
-    AND created_at >= now() - interval '24 hours';
+    AND created_at >= pg_catalog.clock_timestamp() - interval '24 hours';
 
   IF v_published_count >= v_max_published_per_24h THEN
-    SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - now())))::integer)
+    SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - pg_catalog.clock_timestamp())))::integer)
     INTO v_retry_after
     FROM public.reports
     WHERE user_id = v_user_id
-      AND created_at >= now() - interval '24 hours';
+      AND created_at >= pg_catalog.clock_timestamp() - interval '24 hours';
 
     RETURN jsonb_build_object(
       'action', 'LIMIT_REACHED',
@@ -246,7 +246,7 @@ BEGIN
 
   UPDATE public.idempotency_keys
   SET status = 'in_progress',
-      locked_until = now() + interval '3 minutes',
+      locked_until = pg_catalog.clock_timestamp() + interval '3 minutes',
       updated_at = now()
   WHERE id = v_id;
 
@@ -337,7 +337,7 @@ BEGIN
     RAISE EXCEPTION 'IDEMPOTENCY_KEY_NOT_IN_PROGRESS' USING ERRCODE = '55000';
   END IF;
 
-  IF v_locked_until <= now() THEN
+  IF v_locked_until <= pg_catalog.clock_timestamp() THEN
     RAISE EXCEPTION 'IDEMPOTENCY_LOCK_EXPIRED' USING ERRCODE = '55000';
   END IF;
 
@@ -352,11 +352,11 @@ BEGIN
   END IF;
 
   SELECT count(*)::integer,
-         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - now())))::integer)
+         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - pg_catalog.clock_timestamp())))::integer)
   INTO v_published_count, v_retry_after
   FROM public.reports
   WHERE user_id = v_user_id
-    AND created_at >= now() - interval '24 hours';
+    AND created_at >= pg_catalog.clock_timestamp() - interval '24 hours';
 
   IF v_published_count >= v_max_published_per_24h THEN
     RETURN jsonb_build_object(
@@ -561,7 +561,7 @@ BEGIN
     WHERE k.user_id = v_user_id
       AND k.report_id::text = v_report_id
       AND k.status = 'in_progress'
-      AND k.locked_until > now()
+      AND k.locked_until > pg_catalog.clock_timestamp()
   );
 END;
 $$;
@@ -612,7 +612,7 @@ BEGIN
     WHERE k.user_id = v_user_id
       AND k.report_id::text = v_report_id
       AND k.status = 'in_progress'
-      AND k.locked_until > now()
+      AND k.locked_until > pg_catalog.clock_timestamp()
   ) AND NOT EXISTS (
     SELECT 1
     FROM public.reports r

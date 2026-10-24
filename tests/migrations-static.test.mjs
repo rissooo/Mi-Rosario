@@ -254,7 +254,7 @@ test("las migraciones protegen funciones SECURITY DEFINER, tablas y orden de obj
 
   assert.match(idempotencyMigration.sql, /report_id UUID NOT NULL DEFAULT gen_random_uuid\(\)(?![^,]*REFERENCES)/i);
   assert.match(idempotencyMigration.sql, /UNIQUE \(report_id\)/i);
-  assert.match(idempotencyMigration.sql, /locked_until = now\(\) \+ interval '3 minutes'/i);
+  assert.match(idempotencyMigration.sql, /pg_catalog\.clock_timestamp\(\) \+ interval '3 minutes'/i);
   assert.match(idempotencyMigration.sql, /ON CONFLICT \(user_id, key\) DO NOTHING/i);
   assert.match(idempotencyMigration.sql, /FROM public\.idempotency_keys[\s\S]*?WHERE user_id = v_user_id AND key = p_key\s+FOR UPDATE/i);
   assert.match(idempotencyMigration.sql, /CREATE OR REPLACE FUNCTION public\.publish_report[\s\S]*?INSERT INTO public\.reports[\s\S]*?UPDATE public\.idempotency_keys[\s\S]*?SET status = 'completed'/i);
@@ -383,25 +383,25 @@ test("las cuotas configurables se serializan por usuario en claim y publicación
     assert.match(sql, /pg_catalog\.pg_advisory_xact_lock\(pg_catalog\.hashtextextended\(v_user_id::text, 0\)\)/i);
   }
   assert.ok(claim.indexOf("pg_catalog.pg_advisory_xact_lock") < claim.indexOf("INSERT INTO public.idempotency_keys"));
-  assert.match(claim, /status = 'in_progress'[\s\S]*?locked_until > now\(\)/i);
+  assert.match(claim, /status = 'in_progress'[\s\S]*?locked_until > pg_catalog\.clock_timestamp\(\)/i);
   assert.match(claim, /v_active_claim_count > v_max_in_progress_claims/i);
   assert.match(claim, /v_active_claim_count >= v_max_in_progress_claims/i);
   assert.match(claim, /v_published_count >= v_max_published_per_24h/i);
-  assert.match(claim, /created_at >= now\(\) - interval '24 hours'/i);
+  assert.match(claim, /created_at >= pg_catalog\.clock_timestamp\(\) - interval '24 hours'/i);
   assert.match(claim, /'action', 'LIMIT_REACHED'[\s\S]*?'quota', 'active_claims'/i);
   assert.match(claim, /'action', 'LIMIT_REACHED'[\s\S]*?'quota', 'published_24h'/i);
   assert.match(claim, /'retryAfter', v_retry_after/i);
 
   assert.ok(publish.indexOf("pg_catalog.pg_advisory_xact_lock") < publish.indexOf("FROM public.idempotency_keys"));
   assert.ok(publish.indexOf("v_published_count >= v_max_published_per_24h") < publish.indexOf("INSERT INTO public.reports"));
-  assert.match(publish, /created_at >= now\(\) - interval '24 hours'/i);
+  assert.match(publish, /created_at >= pg_catalog\.clock_timestamp\(\) - interval '24 hours'/i);
   assert.match(publish, /'code', 'PUBLICATION_IN_PROGRESS'[\s\S]*?'quota', 'published_24h'/i);
-  assert.match(publish, /v_locked_until <= now\(\)/i);
+  assert.match(publish, /v_locked_until <= pg_catalog\.clock_timestamp\(\)/i);
 
   for (const helper of ["can_upload_report_object", "can_delete_unpublished_report_object"]) {
     const helperSql = functionSql(helper);
     assert.ok(helperSql);
-    assert.match(helperSql, /k\.locked_until > now\(\)/i, `${helper} debe exigir que el claim siga vigente`);
+    assert.match(helperSql, /k\.locked_until > pg_catalog\.clock_timestamp\(\)/i, `${helper} debe exigir que el claim siga vigente`);
   }
 });
 

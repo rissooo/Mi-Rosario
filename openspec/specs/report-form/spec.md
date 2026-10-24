@@ -149,8 +149,12 @@ Si la publicación falla, el formulario MUST mostrar el mensaje en español que 
 - **THEN** se muestra el mensaje del error con un botón "Reintentar" y el formulario conserva todos los datos y la foto
 
 #### Scenario: Publicación todavía en curso
-- **WHEN** la publicación responde 409 PUBLICATION_IN_PROGRESS
+- **WHEN** la publicación responde 409 PUBLICATION_IN_PROGRESS porque la misma clave tiene una operación activa
 - **THEN** se muestra que la publicación sigue en curso y el reintento usa la misma clave
+
+#### Scenario: Cuota de publicaciones de la cuenta alcanzada
+- **WHEN** la publicación responde 429 RATE_LIMITED porque la cuenta llegó al máximo de publicaciones en curso o de reportes en las últimas 24 horas
+- **THEN** se muestra el mensaje del límite en español, distinto del de una publicación en curso, y el formulario conserva todos los datos, la foto y la clave para reintentar más tarde
 
 #### Scenario: Sesión vencida
 - **WHEN** la publicación responde 401 UNAUTHENTICATED
@@ -177,3 +181,18 @@ Mientras la publicación use la fuente de datos falsa, el panel del reporte MUST
 #### Scenario: Aviso en el panel
 - **WHEN** el panel del reporte usa la fuente de datos falsa
 - **THEN** muestra un aviso visible de que es un modo de ejemplo y los reportes no se guardan
+
+### Requirement: Publicación en el backend real
+Fuera del modo de ejemplo, publicar MUST enviar `POST /api/reports` en multipart con el campo `report` (JSON de los campos revisados), el campo `image` (la foto preparada en el navegador) y el header `Idempotency-Key`, que MUST ser el mismo en cada reintento del mismo borrador. Los errores del servidor MUST mostrarse con su mensaje sin perder el borrador.
+
+#### Scenario: Publicar con foto
+- **WHEN** una persona con sesión completa el formulario y publica
+- **THEN** el servidor guarda el reporte y la interfaz muestra "¡Reporte publicado!" con el reporte que devolvió el servidor
+
+#### Scenario: Reintento después de un error
+- **WHEN** la publicación falla por un error temporal y la persona reintenta
+- **THEN** el reintento usa la misma clave de idempotencia y no crea un reporte duplicado
+
+#### Scenario: Cuota alcanzada
+- **WHEN** el servidor responde 429 `RATE_LIMITED`
+- **THEN** la interfaz muestra el mensaje del servidor y conserva el borrador

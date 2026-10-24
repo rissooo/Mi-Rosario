@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Permitir publicar y consultar reportes ciudadanos con persistencia controlada, fotos derivadas sin metadatos, reintentos idempotentes y confirmaciones atómicas. Las pruebas de PostgreSQL, RLS y Storage quedan pendientes de un proyecto de pruebas en la nube.
+Permitir publicar y consultar reportes ciudadanos con persistencia controlada, fotos derivadas sin metadatos, reintentos idempotentes y confirmaciones atómicas, con permisos definidos en la base de datos (RLS y Storage solo del servidor).
 
 ## ADDED Requirements
 

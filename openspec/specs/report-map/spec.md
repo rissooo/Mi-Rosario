@@ -82,11 +82,19 @@ El sistema MUST mostrar, al tocar un marcador, el detalle del reporte con foto, 
 - **THEN** se muestra como "Falta de luz" y ningún texto lo describe como zona insegura
 
 ### Requirement: Foto no disponible
-El sistema MUST mostrar un estado honesto de "Foto no disponible" cuando la foto del reporte no se puede cargar, sin reemplazarla por una imagen inventada.
+El sistema MUST mostrar un estado honesto de "Foto no disponible" cuando la foto del reporte no se puede cargar, sin reemplazarla por una imagen inventada. Una foto con `expiresAt: null` MUST tratarse como una URL que no vence; solo una fecha de vencimiento ya pasada MUST mostrarse como vencida sin intentar cargarla.
 
 #### Scenario: La foto falla
 - **WHEN** la URL de la foto no carga o está vencida
 - **THEN** el detalle muestra "Foto no disponible" en lugar de la imagen y el resto del detalle sigue visible
+
+#### Scenario: Foto con URL que no vence
+- **WHEN** el reporte trae una foto con `expiresAt: null` y la URL carga
+- **THEN** el detalle muestra la foto, sin importar cuánto tiempo pasó desde la publicación
+
+#### Scenario: Foto con vencimiento ya pasado
+- **WHEN** el reporte trae una foto con `expiresAt` en una fecha anterior a la actual
+- **THEN** el detalle muestra "Foto no disponible" sin pedir la imagen
 
 ### Requirement: Confirmaciones según el umbral recibido
 El sistema MUST mostrar las confirmaciones ciudadanas como `confirmationCount` de `threshold`, usando el umbral que viene en los datos del reporte y nunca un valor fijo en la interfaz.
@@ -183,3 +191,18 @@ Al elegir "Entrar con Google" en el menú, el sistema MUST iniciar el login con 
 #### Scenario: Iniciar sesión desde el menú
 - **WHEN** una persona sin sesión elige "Entrar con Google" en el menú y completa el login
 - **THEN** vuelve a `/mapa` con la sesión iniciada y el menú muestra su email
+
+### Requirement: Reportes reales en el mapa
+Fuera del modo de ejemplo, el mapa MUST cargar los reportes del área visible desde `GET /api/reports`, recorriendo todas las páginas del cursor, y MUST mostrar en el detalle la foto pública que devuelve el servidor. Una respuesta que no cumple el contrato MUST mostrarse como error de carga, no como datos.
+
+#### Scenario: Cargar reportes publicados
+- **WHEN** una persona abre `/mapa` y hay reportes publicados en el área visible
+- **THEN** ve sus marcadores, y al abrir uno ve su foto, título, dirección, etapa y confirmaciones según el servidor
+
+#### Scenario: Respuesta fuera del contrato
+- **WHEN** la API responde una lista que no pasa el validador del contrato
+- **THEN** el mapa muestra el estado de error con la opción de reintentar
+
+#### Scenario: Sin aviso de ejemplo
+- **WHEN** el mapa usa la API real
+- **THEN** la página no muestra el aviso de datos de ejemplo

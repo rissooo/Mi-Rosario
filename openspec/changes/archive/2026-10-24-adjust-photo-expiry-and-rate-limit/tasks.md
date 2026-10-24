@@ -16,12 +16,12 @@
 
 - [x] 3.1 En `app/components/reports/ReportDetail.tsx`, considerar vencida la foto solo si `expiresAt !== null` y la fecha ya pasó, y actualizar el comentario sobre las URLs. Verificar con `npx tsc --noEmit --incremental false` y `npm run lint`.
 - [x] 3.2 En `app/components/reports/report-publisher.ts`, usar `expiresAt: null` en la foto simulada y agregar `RATE_LIMITED` a `SIMULATED_FAILURES`, con el mensaje de `PUBLICATION_CASES`. En `report-form.test.ts`, sumar `["RATE_LIMITED", 429]` al test de errores simulados y comprobar que el mensaje difiere del de PUBLICATION_IN_PROGRESS. Verificar con `node app/components/reports/check-report-form.mjs`.
-- [ ] 3.3 Prueba en celular (360 px) en `/mapa`: abrir el detalle de un reporte de ejemplo y ver la foto o "Foto no disponible" sin errores en la consola; publicar con `?reportar=1&simular=RATE_LIMITED` y ver el mensaje del límite con el borrador y la foto conservados.
+- [x] 3.3 Prueba en celular (360 px) en `/mapa`: abrir el detalle de un reporte de ejemplo y ver la foto o "Foto no disponible" sin errores en la consola; publicar con `?reportar=1&simular=RATE_LIMITED` y ver el mensaje del límite con el borrador y la foto conservados. Cumplida el 24/10/2026 por decisión de Fran: desde el celular se vio la foto real del reporte en el detalle (preview del PR #23, contra producción); la pantalla de cuota con `?simular=RATE_LIMITED` no se probó en el celular, pero `api-sources.test.ts` cubre la respuesta 429 real.
 
 ## 4. Verificación integral
 
 - [x] 4.1 Correr `npm run check:contracts`, `npm run lint`, `npx tsc --noEmit --incremental false`, `openspec validate adjust-photo-expiry-and-rate-limit --strict` y `git diff --check`; las cinco tienen que pasar sin errores.
-- [ ] 4.2 Pasarle al backend (PR #6) la lista de ajustes de design.md (decisión 4) y registrar la revisión de quienes proveen y consumen el contrato. Este change no modifica `feature/reports-backend`.
+- [x] 4.2 Pasarle al backend (PR #6) la lista de ajustes de design.md (decisión 4) y registrar la revisión de quienes proveen y consumen el contrato. Este change no modifica `feature/reports-backend`. Hecho en el PR #22 (`fix/backend-contrato-fotos-cuotas`): el backend devuelve `expiresAt: null` y `RATE_LIMITED` 429.
 
 ## Workflow follow-up
 

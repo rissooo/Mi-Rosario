@@ -258,6 +258,12 @@ export function ReportPanel({
           )}
           <FieldErrors messages={errors.general} />
 
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Al publicar, la foto, el texto y el punto elegido quedan visibles para todos en el mapa. La foto
+            pública se guarda sin los datos del celular (como la ubicación GPS); la original queda privada. Si
+            usás la ayuda de la IA, la foto se envía a OpenAI solo para sugerir los campos.
+          </p>
+
           <button type="submit" disabled={isPublishing} className={primaryButton}>
             {isPublishing ? "Publicando..." : submission.state === "failed" ? "Reintentar" : "Publicar"}
           </button>

@@ -65,6 +65,8 @@ CREATE INDEX IF NOT EXISTS idx_reports_cursor
   ON public.reports (created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_reports_user_id
   ON public.reports (user_id);
+CREATE INDEX IF NOT EXISTS idx_reports_user_created
+  ON public.reports (user_id, created_at DESC);
 
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 

@@ -351,3 +351,50 @@ test("el script cloud carga su entorno solo al ejecutarse directamente y mantien
   assert.match(cloudScript, /if\s*\(isDirectExecution\)\s*await main\(\)/);
   assert.doesNotMatch(unitRunner, /check-reports-cloud\.mjs/);
 });
+
+test("las cuotas configurables se serializan por usuario en claim y publicación", () => {
+  const migrations = getMigrations();
+  const idempotencyMigration = migrations.find(({ file }) => file === "20261023000003_idempotency.sql");
+  const reportsMigration = migrations.find(({ file }) => file === "20261023000002_reports_table.sql");
+  assert.ok(idempotencyMigration && reportsMigration);
+
+  const limitsTable = idempotencyMigration.sql.match(
+    /CREATE TABLE IF NOT EXISTS public\.report_backend_limits\s*\(([\s\S]*?)\);/i,
+  )?.[0];
+  assert.ok(limitsTable, "Debe existir la configuración SQL de cuotas");
+  assert.match(limitsTable, /max_in_progress_claims INTEGER NOT NULL DEFAULT 3 CHECK \(max_in_progress_claims > 0\)/i);
+  assert.match(limitsTable, /max_published_per_24h INTEGER NOT NULL DEFAULT 10 CHECK \(max_published_per_24h > 0\)/i);
+  assert.match(idempotencyMigration.sql, /ALTER TABLE public\.report_backend_limits ENABLE ROW LEVEL SECURITY/i);
+  assert.match(idempotencyMigration.sql, /REVOKE ALL PRIVILEGES ON TABLE public\.report_backend_limits FROM PUBLIC, anon, authenticated/i);
+  assert.match(reportsMigration.sql, /ON public\.reports\s*\(user_id, created_at DESC\)/i);
+
+  const functionSql = (name) => idempotencyMigration.sql.match(
+    new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\([\\s\\S]*?\\$\\$;`, "i"),
+  )?.[0];
+  const claim = functionSql("claim_idempotency_key");
+  const publish = functionSql("publish_report");
+  const fail = functionSql("fail_idempotency_key");
+  assert.ok(claim && publish && fail);
+
+  for (const sql of [claim, publish, fail]) {
+    assert.match(sql, /pg_catalog\.pg_advisory_xact_lock\(pg_catalog\.hashtextextended\(v_user_id::text, 0\)\)/i);
+  }
+  assert.ok(claim.indexOf("pg_catalog.pg_advisory_xact_lock") < claim.indexOf("INSERT INTO public.idempotency_keys"));
+  assert.match(claim, /status = 'in_progress'[\s\S]*?locked_until > now\(\)/i);
+  assert.match(claim, /v_active_claim_count > v_max_in_progress_claims/i);
+  assert.match(claim, /v_active_claim_count >= v_max_in_progress_claims/i);
+  assert.match(claim, /v_published_count >= v_max_published_per_24h/i);
+  assert.match(claim, /created_at >= now\(\) - interval '24 hours'/i);
+
+  assert.ok(publish.indexOf("pg_catalog.pg_advisory_xact_lock") < publish.indexOf("FROM public.idempotency_keys"));
+  assert.ok(publish.indexOf("v_published_count >= v_max_published_per_24h") < publish.indexOf("INSERT INTO public.reports"));
+  assert.match(publish, /created_at >= now\(\) - interval '24 hours'/i);
+  assert.match(publish, /'code', 'PUBLICATION_IN_PROGRESS'[\s\S]*?'quota', 'published_24h'/i);
+  assert.match(publish, /v_locked_until <= now\(\)/i);
+
+  for (const helper of ["can_upload_report_object", "can_delete_unpublished_report_object"]) {
+    const helperSql = functionSql(helper);
+    assert.ok(helperSql);
+    assert.match(helperSql, /k\.locked_until > now\(\)/i, `${helper} debe exigir que el claim siga vigente`);
+  }
+});

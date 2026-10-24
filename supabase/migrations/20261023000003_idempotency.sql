@@ -26,6 +26,20 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_expires_at
 ALTER TABLE public.idempotency_keys ENABLE ROW LEVEL SECURITY;
 REVOKE ALL PRIVILEGES ON TABLE public.idempotency_keys FROM PUBLIC, anon, authenticated;
 
+-- Límites editables por migración/SQL Editor, sin lectura o escritura desde clientes.
+CREATE TABLE IF NOT EXISTS public.report_backend_limits (
+  id SMALLINT PRIMARY KEY CHECK (id = 1),
+  max_in_progress_claims INTEGER NOT NULL DEFAULT 3 CHECK (max_in_progress_claims > 0),
+  max_published_per_24h INTEGER NOT NULL DEFAULT 10 CHECK (max_published_per_24h > 0)
+);
+
+INSERT INTO public.report_backend_limits (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.report_backend_limits ENABLE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE public.report_backend_limits FROM PUBLIC, anon, authenticated;
+
 -- Elimina firmas anteriores que permitían parametrizar el bloqueo o completar fuera de la RPC.
 DROP FUNCTION IF EXISTS public.claim_idempotency_key(UUID, TEXT, TEXT, INTEGER);
 DROP FUNCTION IF EXISTS public.claim_idempotency_key(UUID, TEXT, TEXT);
@@ -49,6 +63,10 @@ DECLARE
   v_existing_status TEXT;
   v_locked_until TIMESTAMPTZ;
   v_retry_after INTEGER;
+  v_max_in_progress_claims INTEGER;
+  v_max_published_per_24h INTEGER;
+  v_active_claim_count INTEGER;
+  v_published_count INTEGER;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
@@ -57,6 +75,19 @@ BEGIN
 
   IF p_key IS NULL OR p_payload_hash IS NULL OR p_payload_hash !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION 'INVALID_IDEMPOTENCY_INPUT' USING ERRCODE = '22023';
+  END IF;
+
+  -- Serializa todos los claims/publicaciones de la cuenta antes de contar cuotas.
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_user_id::text, 0));
+
+  SELECT max_in_progress_claims, max_published_per_24h
+  INTO v_max_in_progress_claims, v_max_published_per_24h
+  FROM public.report_backend_limits
+  WHERE id = 1
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'REPORT_LIMIT_CONFIGURATION_MISSING' USING ERRCODE = '55000';
   END IF;
 
   INSERT INTO public.idempotency_keys (
@@ -76,6 +107,55 @@ BEGIN
   RETURNING id, report_id INTO v_id, v_report_id;
 
   IF v_id IS NOT NULL THEN
+    SELECT count(*)::integer
+    INTO v_active_claim_count
+    FROM public.idempotency_keys
+    WHERE user_id = v_user_id
+      AND status = 'in_progress'
+      AND locked_until > now();
+
+    IF v_active_claim_count > v_max_in_progress_claims THEN
+      SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(locked_until) - now())))::integer)
+      INTO v_retry_after
+      FROM public.idempotency_keys
+      WHERE user_id = v_user_id
+        AND status = 'in_progress'
+        AND locked_until > now()
+        AND id <> v_id;
+
+      DELETE FROM public.idempotency_keys WHERE id = v_id;
+      RETURN jsonb_build_object(
+        'action', 'LIMIT_REACHED',
+        'status', 'in_progress',
+        'code', 'PUBLICATION_IN_PROGRESS',
+        'quota', 'active_claims',
+        'retryAfter', v_retry_after
+      );
+    END IF;
+
+    SELECT count(*)::integer
+    INTO v_published_count
+    FROM public.reports
+    WHERE user_id = v_user_id
+      AND created_at >= now() - interval '24 hours';
+
+    IF v_published_count >= v_max_published_per_24h THEN
+      SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - now())))::integer)
+      INTO v_retry_after
+      FROM public.reports
+      WHERE user_id = v_user_id
+        AND created_at >= now() - interval '24 hours';
+
+      DELETE FROM public.idempotency_keys WHERE id = v_id;
+      RETURN jsonb_build_object(
+        'action', 'LIMIT_REACHED',
+        'status', 'in_progress',
+        'code', 'PUBLICATION_IN_PROGRESS',
+        'quota', 'published_24h',
+        'retryAfter', v_retry_after
+      );
+    END IF;
+
     RETURN jsonb_build_object(
       'action', 'CLAIMED',
       'status', 'in_progress',
@@ -113,6 +193,54 @@ BEGIN
       'code', 'PUBLICATION_IN_PROGRESS',
       'retryAfter', v_retry_after,
       'reportId', v_report_id
+    );
+  END IF;
+
+  SELECT count(*)::integer
+  INTO v_active_claim_count
+  FROM public.idempotency_keys
+  WHERE user_id = v_user_id
+    AND status = 'in_progress'
+    AND locked_until > now()
+    AND id <> v_id;
+
+  IF v_active_claim_count >= v_max_in_progress_claims THEN
+    SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(locked_until) - now())))::integer)
+    INTO v_retry_after
+    FROM public.idempotency_keys
+    WHERE user_id = v_user_id
+      AND status = 'in_progress'
+      AND locked_until > now()
+      AND id <> v_id;
+
+    RETURN jsonb_build_object(
+      'action', 'LIMIT_REACHED',
+      'status', 'in_progress',
+      'code', 'PUBLICATION_IN_PROGRESS',
+      'quota', 'active_claims',
+      'retryAfter', v_retry_after
+    );
+  END IF;
+
+  SELECT count(*)::integer
+  INTO v_published_count
+  FROM public.reports
+  WHERE user_id = v_user_id
+    AND created_at >= now() - interval '24 hours';
+
+  IF v_published_count >= v_max_published_per_24h THEN
+    SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - now())))::integer)
+    INTO v_retry_after
+    FROM public.reports
+    WHERE user_id = v_user_id
+      AND created_at >= now() - interval '24 hours';
+
+    RETURN jsonb_build_object(
+      'action', 'LIMIT_REACHED',
+      'status', 'in_progress',
+      'code', 'PUBLICATION_IN_PROGRESS',
+      'quota', 'published_24h',
+      'retryAfter', v_retry_after
     );
   END IF;
 
@@ -156,17 +284,23 @@ DECLARE
   v_report_id UUID;
   v_key_status TEXT;
   v_key_hash TEXT;
+  v_locked_until TIMESTAMPTZ;
   v_report_owner UUID;
   v_original_extensions TEXT;
   v_public_extension TEXT;
+  v_max_published_per_24h INTEGER;
+  v_published_count INTEGER;
+  v_retry_after INTEGER;
 BEGIN
   v_user_id := auth.uid();
   IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'UNAUTHENTICATED: se requiere una sesión ciudadana' USING ERRCODE = '28000';
   END IF;
 
-  SELECT report_id, status, payload_hash
-  INTO v_report_id, v_key_status, v_key_hash
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_user_id::text, 0));
+
+  SELECT report_id, status, payload_hash, locked_until
+  INTO v_report_id, v_key_status, v_key_hash, v_locked_until
   FROM public.idempotency_keys
   WHERE user_id = v_user_id AND key = p_key
   FOR UPDATE;
@@ -201,6 +335,36 @@ BEGIN
 
   IF v_key_status <> 'in_progress' THEN
     RAISE EXCEPTION 'IDEMPOTENCY_KEY_NOT_IN_PROGRESS' USING ERRCODE = '55000';
+  END IF;
+
+  IF v_locked_until <= now() THEN
+    RAISE EXCEPTION 'IDEMPOTENCY_LOCK_EXPIRED' USING ERRCODE = '55000';
+  END IF;
+
+  SELECT max_published_per_24h
+  INTO v_max_published_per_24h
+  FROM public.report_backend_limits
+  WHERE id = 1
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'REPORT_LIMIT_CONFIGURATION_MISSING' USING ERRCODE = '55000';
+  END IF;
+
+  SELECT count(*)::integer,
+         GREATEST(1, CEIL(EXTRACT(EPOCH FROM (min(created_at) + interval '24 hours' - now())))::integer)
+  INTO v_published_count, v_retry_after
+  FROM public.reports
+  WHERE user_id = v_user_id
+    AND created_at >= now() - interval '24 hours';
+
+  IF v_published_count >= v_max_published_per_24h THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'code', 'PUBLICATION_IN_PROGRESS',
+      'quota', 'published_24h',
+      'retryAfter', v_retry_after
+    );
   END IF;
 
   v_original_extensions := CASE p_photo_public_mime_type
@@ -315,6 +479,8 @@ BEGIN
     RAISE EXCEPTION 'UNAUTHENTICATED: se requiere una sesión ciudadana' USING ERRCODE = '28000';
   END IF;
 
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_user_id::text, 0));
+
   SELECT report_id, status, payload_hash
   INTO v_stored_report_id, v_status, v_stored_hash
   FROM public.idempotency_keys
@@ -395,6 +561,7 @@ BEGIN
     WHERE k.user_id = v_user_id
       AND k.report_id::text = v_report_id
       AND k.status = 'in_progress'
+      AND k.locked_until > now()
   );
 END;
 $$;
@@ -445,6 +612,7 @@ BEGIN
     WHERE k.user_id = v_user_id
       AND k.report_id::text = v_report_id
       AND k.status = 'in_progress'
+      AND k.locked_until > now()
   ) AND NOT EXISTS (
     SELECT 1
     FROM public.reports r

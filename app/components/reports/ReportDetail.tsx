@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type Ref } from "react";
+import { useEffect, useState, type ReactNode, type Ref } from "react";
 import { INITIAL_CATEGORIES } from "@/lib/contracts/categories";
 import {
   FUTURE_INSTITUTIONAL_STAGES, REPORT_STAGES, SEVERITY_DETAILS, STAGE_LABELS,
@@ -69,7 +69,18 @@ function StageTrack({ status }: { status: ReportStage }) {
   );
 }
 
-export function ReportDetail({ report, onClose, ref }: { report: Report; onClose: () => void; ref?: Ref<HTMLElement> }) {
+export function ReportDetail({
+  report,
+  onClose,
+  ref,
+  confirmation,
+}: {
+  report: Report;
+  onClose: () => void;
+  ref?: Ref<HTMLElement>;
+  /** Sección "Yo también lo vi", debajo de los datos del reporte. */
+  confirmation?: ReactNode;
+}) {
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -119,6 +130,8 @@ export function ReportDetail({ report, onClose, ref }: { report: Report; onClose
           <dt className="font-medium text-zinc-500">Ubicación</dt>
           <dd>{formatAddress(report.location.address)}</dd>
         </dl>
+
+        {confirmation}
 
         <p className="text-sm leading-6">{report.description}</p>
 

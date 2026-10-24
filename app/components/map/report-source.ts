@@ -13,9 +13,36 @@ export const USING_SAMPLE_DATA = true;
 // Reportes publicados desde el formulario en el modo de ejemplo. Viven en memoria hasta recargar la página.
 const publishedSampleReports: Report[] = [];
 
+/** Etapa y confirmaciones que cambian en el modo de ejemplo al confirmar un reporte. */
+export type SampleReportChanges = Pick<Report, "status" | "citizenVerification">;
+
+// Cambios de los reportes de ejemplo en memoria; SAMPLE_REPORTS no se modifica.
+const sampleReportChanges = new Map<string, SampleReportChanges>();
+
 /** Suma un reporte publicado en el modo de ejemplo para que aparezca en el mapa. */
 export function addPublishedSampleReport(report: Report): void {
   publishedSampleReports.push(report);
+}
+
+/** En el modo de ejemplo, la cuenta actual es la autora solo de lo que publicó en esta sesión. */
+export function isSampleAuthor(id: string): boolean {
+  return publishedSampleReports.some((report) => report.id === id);
+}
+
+function withChanges(report: Report): Report {
+  const changes = sampleReportChanges.get(report.id);
+  return changes ? { ...report, ...changes } : report;
+}
+
+/** Busca un reporte del modo de ejemplo con sus cambios aplicados. */
+export function findSampleReport(id: string): Report | null {
+  const report = [...SAMPLE_REPORTS, ...publishedSampleReports].find((entry) => entry.id === id);
+  return report ? withChanges(report) : null;
+}
+
+/** Guarda en memoria la nueva etapa y las confirmaciones de un reporte del modo de ejemplo. */
+export function updateSampleReport(id: string, changes: SampleReportChanges): void {
+  sampleReportChanges.set(id, changes);
 }
 
 export class ReportSourceError extends Error {
@@ -67,6 +94,7 @@ export async function listReports(query: ReportListQuery): Promise<ReportList> {
   );
 
   let matches = [...SAMPLE_REPORTS, ...publishedSampleReports]
+    .map(withChanges)
     .filter((report) => (!bbox || insideBbox(report, bbox)) &&
       (!categoryId || report.categoryId === categoryId) &&
       (!status || report.status === status))

@@ -3,7 +3,10 @@ import test from "node:test";
 import { FUTURE_INSTITUTIONAL_STAGES, SEVERITIES } from "../../../lib/contracts/reports";
 import { INITIAL_CATEGORIES } from "../../../lib/contracts/categories";
 import { validateReport, validateReportList } from "../../../lib/contracts/validation";
-import { addPublishedSampleReport, listReports, loadAllReportsInBbox, ReportSourceError, toBbox } from "./report-source";
+import {
+  addPublishedSampleReport, findSampleReport, isSampleAuthor, listReports, loadAllReportsInBbox, ReportSourceError, toBbox,
+  updateSampleReport,
+} from "./report-source";
 import { isInsideRosario } from "./rosario-boundary";
 import { SAMPLE_REPORTS } from "./sample-reports";
 
@@ -96,4 +99,28 @@ test("un reporte publicado en el modo de ejemplo aparece en el área que lo cont
 test("toBbox recorta a rangos válidos los límites del área visible que dan la vuelta", () => {
   assert.equal(toBbox({ west: -200, south: -95, east: 200, north: 95 }), "-180,-90,180,90");
   assert.equal(toBbox({ west: -60.7, south: -33, east: -60.6, north: -32.9 }), "-60.7,-33,-60.6,-32.9");
+});
+
+test("un reporte de ejemplo actualizado se lista con sus cambios sin modificar los ejemplos", async () => {
+  const sample = SAMPLE_REPORTS.find((report) => report.status === "pending" && report.citizenVerification.confirmationCount === 2);
+  assert.ok(sample, "hay un ejemplo a una confirmación del umbral");
+  const original = structuredClone(sample);
+  const citizenVerification = { ...sample.citizenVerification, confirmationCount: 3, corroborated: true };
+  updateSampleReport(sample.id, { status: "citizen-verification", citizenVerification });
+
+  const listed = (await listReports({ bbox: ROSARIO_BBOX })).items.find((report) => report.id === sample.id);
+  assert.equal(listed?.status, "citizen-verification");
+  assert.deepEqual(listed?.citizenVerification, citizenVerification);
+  assert.equal(validateReport(listed).valid, true);
+  assert.deepEqual(findSampleReport(sample.id), listed);
+  assert.deepEqual(sample, original, "SAMPLE_REPORTS no cambia");
+  assert.equal(findSampleReport("40000000-0000-4000-8000-00000000ffff"), null);
+});
+
+test("en el modo de ejemplo la cuenta solo es autora de lo que publicó", () => {
+  const published = { ...SAMPLE_REPORTS[1], id: "40000000-0000-4000-8000-000000000002" };
+  assert.equal(isSampleAuthor(published.id), false);
+  addPublishedSampleReport(published);
+  assert.equal(isSampleAuthor(published.id), true);
+  assert.equal(isSampleAuthor(SAMPLE_REPORTS[1].id), false);
 });

@@ -1,5 +1,6 @@
-// Compila solo el grafo de tests del formulario de reporte en un directorio temporal aislado.
-// Mismo enfoque que scripts/check-contracts.mjs; se corre con `node app/components/reports/check-report-form.mjs`.
+// Compila solo el grafo de tests del formulario de reporte y de las confirmaciones en un directorio
+// temporal aislado. Mismo enfoque que scripts/check-contracts.mjs; se corre con
+// `node app/components/reports/check-report-form.mjs`.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -8,10 +9,11 @@ import { spawnSync } from "node:child_process";
 import ts from "typescript";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-const testFile = "app/components/reports/report-form.test";
+// node --test corre cada archivo en su propio proceso, así el estado en memoria de las fuentes no se mezcla.
+const testFiles = ["app/components/reports/report-form.test", "app/components/reports/confirmations.test"];
 const output = await mkdtemp(join(tmpdir(), "mi-rosario-report-form-"));
 try {
-  const program = ts.createProgram([join(root, `${testFile}.ts`)], {
+  const program = ts.createProgram(testFiles.map((file) => join(root, `${file}.ts`)), {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.CommonJS,
     moduleResolution: ts.ModuleResolutionKind.Node10,
@@ -29,7 +31,7 @@ try {
   } else {
     const emitted = program.emit();
     if (emitted.emitSkipped) throw new Error("No se pudieron compilar los tests del formulario de reporte.");
-    const result = spawnSync(process.execPath, ["--test", join(output, `${testFile}.js`)], { stdio: "inherit", cwd: root });
+    const result = spawnSync(process.execPath, ["--test", ...testFiles.map((file) => join(output, `${file}.js`))], { stdio: "inherit", cwd: root });
     if (result.error) throw result.error;
     process.exitCode = result.status ?? 1;
   }

@@ -1,14 +1,15 @@
 /**
- * Única fuente de datos del mapa. Hoy sirve reportes sintéticos con la forma de
- * GET /api/reports; para integrar el backend solo se reemplaza listReports.
+ * Única fuente de datos del mapa: GET /api/reports. Con NEXT_PUBLIC_REPORTS_SAMPLE_MODE=1 sirve
+ * reportes sintéticos en memoria con la misma forma, para trabajar sin backend.
  */
 import type { ApiError } from "../../../lib/contracts/errors";
 import type { Report, ReportList, ReportListQuery } from "../../../lib/contracts/reports";
-import { validateReportListQuery } from "../../../lib/contracts/validation";
+import { validateReportList, validateReportListQuery } from "../../../lib/contracts/validation";
+import { readApiResponse, usingSampleData } from "../reports/api-response";
 import { SAMPLE_REPORTS } from "./sample-reports";
 
-/** Vale true mientras listReports sirve datos sintéticos; la página muestra un aviso de datos de ejemplo. */
-export const USING_SAMPLE_DATA = true;
+/** Vale true en el modo de ejemplo; la página muestra un aviso de datos de ejemplo. */
+export const USING_SAMPLE_DATA = usingSampleData();
 
 // Reportes publicados desde el formulario en el modo de ejemplo. Viven en memoria hasta recargar la página.
 const publishedSampleReports: Report[] = [];
@@ -88,7 +89,28 @@ function insideBbox(report: Report, bbox: string): boolean {
 export async function listReports(query: ReportListQuery): Promise<ReportList> {
   const parsed = validateReportListQuery(query);
   if (!parsed.valid) throw new ReportSourceError(parsed.error);
-  const { categoryId, status, bbox, limit = 50, cursor } = parsed.value;
+  return usingSampleData() ? listSampleReports(parsed.value) : listApiReports(parsed.value);
+}
+
+async function listApiReports(query: ReportListQuery): Promise<ReportList> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  let response: Response;
+  try {
+    // Sin caché: la lista cambia cada vez que alguien publica o confirma.
+    response = await fetch(`/api/reports?${params}`, { cache: "no-store" });
+  } catch {
+    throw new ReportSourceError({ code: "INTERNAL_ERROR", message: "No se pudieron cargar los reportes. Revisá tu conexión." });
+  }
+  const { body } = await readApiResponse(response, validateReportList, "No se pudieron cargar los reportes.");
+  if (body.error) throw new ReportSourceError(body.error);
+  return body.data;
+}
+
+function listSampleReports(query: ReportListQuery): ReportList {
+  const { categoryId, status, bbox, limit = 50, cursor } = query;
   const filters: CursorFilters = Object.fromEntries(
     Object.entries({ categoryId, status, bbox }).filter(([, value]) => value !== undefined),
   );

@@ -1,18 +1,18 @@
 /**
- * Única fuente de confirmaciones del detalle, con la forma de GET /api/reports/{id}/confirmations/me
- * y POST /api/reports/{id}/confirmations. Hoy es falsa: guarda en memoria y hace de servidor. Para
- * integrar el backend se reemplazan getMyConfirmation y confirmReport por un fetch (sin caché,
- * porque la respuesta es privada) y se conserva la validación del contrato.
+ * Única fuente de confirmaciones del detalle: GET /api/reports/{id}/confirmations/me y
+ * POST /api/reports/{id}/confirmations, sin caché porque la respuesta es privada. Con
+ * NEXT_PUBLIC_REPORTS_SAMPLE_MODE=1 guarda en memoria y hace de servidor.
  */
 import { ERROR_STATUS, type ApiResult, type ErrorCode } from "../../../lib/contracts/errors";
 import { CONFIRMATION_CASES } from "../../../lib/contracts/fixtures";
 import type { ConfirmationResult, MyConfirmation, Report } from "../../../lib/contracts/reports";
 import { validateConfirmationResult, validateMyConfirmation, type ValidationResult } from "../../../lib/contracts/validation";
 import { findSampleReport, isSampleAuthor, updateSampleReport } from "../map/report-source";
+import { readApiResponse, usingSampleData } from "./api-response";
 
 export type ConfirmationResponse<T> = { status: number; body: ApiResult<T> };
 
-/** Errores que se pueden simular en la confirmación con `?simular=` mientras se usa la fuente falsa. */
+/** Errores que se pueden simular en la confirmación con `?simular=` en el modo de ejemplo. */
 export const SIMULATED_CONFIRMATION_FAILURES = ["UNAUTHENTICATED", "REPORT_NOT_FOUND", "INTERNAL_ERROR"] as const;
 export type SimulatedConfirmationFailure = (typeof SIMULATED_CONFIRMATION_FAILURES)[number];
 
@@ -65,7 +65,13 @@ function myConfirmation(report: Report): MyConfirmation {
   };
 }
 
+const confirmationsPath = (reportId: string) => `/api/reports/${encodeURIComponent(reportId)}/confirmations`;
+
 export async function getMyConfirmation(reportId: string, options: Options = {}): Promise<ConfirmationResponse<MyConfirmation>> {
+  if (!usingSampleData()) {
+    const response = await fetch(`${confirmationsPath(reportId)}/me`, { cache: "no-store" });
+    return readApiResponse(response, validateMyConfirmation, "No pudimos consultar tu confirmación.");
+  }
   await wait(options.delayMs ?? 400);
   const report = findSampleReport(reportId);
   if (!report) return failure("REPORT_NOT_FOUND");
@@ -76,6 +82,15 @@ export async function confirmReport(
   reportId: string,
   options: Options & { simulate?: SimulatedConfirmationFailure | null } = {},
 ): Promise<ConfirmationResponse<ConfirmationResult>> {
+  if (!usingSampleData()) {
+    const response = await fetch(confirmationsPath(reportId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      cache: "no-store",
+    });
+    return readApiResponse(response, validateConfirmationResult, MESSAGES.INTERNAL_ERROR ?? "No pudimos registrar tu confirmación.");
+  }
   await wait(options.delayMs ?? 600);
   if (options.simulate) return failure(options.simulate);
 

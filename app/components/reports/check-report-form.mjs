@@ -10,7 +10,11 @@ import ts from "typescript";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 // node --test corre cada archivo en su propio proceso, así el estado en memoria de las fuentes no se mezcla.
-const testFiles = ["app/components/reports/report-form.test", "app/components/reports/confirmations.test"];
+const testFiles = [
+  "app/components/reports/report-form.test",
+  "app/components/reports/confirmations.test",
+  "app/components/reports/api-sources.test",
+];
 const output = await mkdtemp(join(tmpdir(), "mi-rosario-report-form-"));
 try {
   const program = ts.createProgram(testFiles.map((file) => join(root, `${file}.ts`)), {
@@ -31,7 +35,10 @@ try {
   } else {
     const emitted = program.emit();
     if (emitted.emitSkipped) throw new Error("No se pudieron compilar los tests del formulario de reporte.");
-    const result = spawnSync(process.execPath, ["--test", ...testFiles.map((file) => join(output, `${file}.js`))], { stdio: "inherit", cwd: root });
+    // El modo de ejemplo queda activo; api-sources.test lo apaga para probar las fuentes reales.
+    const result = spawnSync(process.execPath, ["--test", ...testFiles.map((file) => join(output, `${file}.js`))], {
+      stdio: "inherit", cwd: root, env: { ...process.env, NEXT_PUBLIC_REPORTS_SAMPLE_MODE: "1" },
+    });
     if (result.error) throw result.error;
     process.exitCode = result.status ?? 1;
   }

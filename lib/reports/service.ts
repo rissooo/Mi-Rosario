@@ -36,7 +36,6 @@ import {
 
 type CursorFilters = Pick<ReportListQuery, "categoryId" | "status" | "bbox">;
 type CursorPayload = { version: 1; createdAt: string; id: string; filters: CursorFilters };
-const TEMPORARY_PHOTO_EXPIRY_FOR_VALIDATION = "2099-01-01T00:00:00.000Z";
 
 export function encodeCursor(report: { id: string; createdAt: string }, filters: CursorFilters): string {
   const payload: CursorPayload = { version: 1, createdAt: report.createdAt, id: report.id, filters };
@@ -82,36 +81,10 @@ type DbReportRow = {
   confirmation_threshold?: number;
 };
 
-/** Forma pública pendiente de que el contrato admita URLs que no vencen. */
-type ReportDtoPendingPhotoExpiry = Omit<Report, "photo"> & {
-  photo: Omit<Photo, "expiresAt">;
-};
-
-/** TEMPORAL: valida una copia mientras Photo.expiresAt siga siendo obligatorio en el contrato. */
-function validateReportTemporarilyWithoutPublicExpiry(report: ReportDtoPendingPhotoExpiry): boolean {
-  return validateReport({
-    ...report,
-    photo: { ...report.photo, expiresAt: TEMPORARY_PHOTO_EXPIRY_FOR_VALIDATION },
-  }).valid;
-}
-
-/** TEMPORAL: el vencimiento se agrega solo a copias usadas por el validador, nunca a la respuesta. */
-function validateReportListTemporarilyWithoutPublicExpiry(
-  list: Omit<ReportList, "items"> & { items: ReportDtoPendingPhotoExpiry[] },
-): boolean {
-  return validateReportList({
-    ...list,
-    items: list.items.map((report) => ({
-      ...report,
-      photo: { ...report.photo, expiresAt: TEMPORARY_PHOTO_EXPIRY_FOR_VALIDATION },
-    })),
-  }).valid;
-}
-
 export function mapRowToReport(
   row: DbReportRow,
   publicUrl: string,
-): ReportDtoPendingPhotoExpiry {
+): Report {
   const count = row.confirmation_count ?? 0;
   const threshold = row.confirmation_threshold ?? 3;
 
@@ -124,10 +97,11 @@ export function mapRowToReport(
     },
   };
 
-  const photo: Omit<Photo, "expiresAt"> = {
+  const photo: Photo = {
     id: row.id as UUID,
     url: publicUrl,
-    // TODO Fran: el contrato exige expiresAt aunque getPublicUrl no venza; no inventar una fecha.
+    // La copia saneada se sirve con getPublicUrl, que no vence.
+    expiresAt: null,
     mimeType: row.photo_public_mime_type as Photo["mimeType"],
     byteSize: row.photo_public_byte_size,
   };
@@ -159,7 +133,7 @@ export function mapRowToReport(
 
 export type PublishServiceResult = {
   httpStatus: number;
-  result: ApiResult<ReportDtoPendingPhotoExpiry>;
+  result: ApiResult<Report>;
   retryAfter?: number;
 };
 
@@ -193,7 +167,7 @@ function publicationQuotaError(retryAfter: number, quota?: "active_claims" | "pu
     ? "Ya tenés el máximo de publicaciones en curso. Reintentá más tarde."
     : "Alcanzaste el máximo de reportes para las últimas 24 horas.";
   return {
-    ...publicationError("PUBLICATION_IN_PROGRESS", message),
+    ...publicationError("RATE_LIMITED", message),
     retryAfter: Math.max(1, Math.floor(retryAfter)),
   };
 }
@@ -347,6 +321,8 @@ export async function publishReportService({
     });
 
     if (published && typeof published === "object" && "success" in published && published.success === false) {
+      // El SQL ya aplicado marca la cuota con su código interno y `quota`; la respuesta
+      // pública la traduce a RATE_LIMITED en publicationQuotaError.
       if (
         "code" in published && published.code === "PUBLICATION_IN_PROGRESS" &&
         "quota" in published && published.quota === "published_24h"
@@ -400,7 +376,7 @@ export async function publishReportService({
 export async function getReportDetailService(
   supabase: SupabaseClient,
   reportId: string,
-): Promise<{ httpStatus: number; result: ApiResult<ReportDtoPendingPhotoExpiry> }> {
+): Promise<{ httpStatus: number; result: ApiResult<Report> }> {
   const { data: row, error } = await supabase
     .from("public_reports")
     .select("*")
@@ -422,7 +398,7 @@ export async function getReportDetailService(
   const photoUrl = getPublicPhotoUrl(supabase, row.photo_public_path);
   const reportDto = mapRowToReport(row, photoUrl);
 
-  if (!validateReportTemporarilyWithoutPublicExpiry(reportDto)) {
+  if (!validateReport(reportDto).valid) {
     return {
       httpStatus: 500,
       result: { error: { code: "INTERNAL_ERROR", message: "No se pudo preparar el reporte público." } },
@@ -441,7 +417,7 @@ export async function getReportDetailService(
 export async function listReportsService(
   supabase: SupabaseClient,
   query: ReportListQuery,
-): Promise<{ httpStatus: number; result: ApiResult<Omit<ReportList, "items"> & { items: ReportDtoPendingPhotoExpiry[] }> }> {
+): Promise<{ httpStatus: number; result: ApiResult<ReportList> }> {
   const parsed = validateReportListQuery(query);
   if (!parsed.valid) {
     return {
@@ -519,7 +495,7 @@ export async function listReportsService(
   const nextCursor = hasMore && items.length > 0 ? encodeCursor(items[items.length - 1], filters) : null;
   const list = { items, nextCursor };
 
-  if (!validateReportListTemporarilyWithoutPublicExpiry(list)) {
+  if (!validateReportList(list).valid) {
     return {
       httpStatus: 500,
       result: { error: { code: "INTERNAL_ERROR", message: "No se pudo preparar la lista pública de reportes." } },

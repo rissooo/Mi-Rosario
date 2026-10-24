@@ -26,7 +26,7 @@ El backend SHALL aceptar en `POST /api/reports` una sesión autenticada, `Idempo
 - **THEN** el backend vuelve a validar y sanear la imagen en TypeScript sin decodificar sus píxeles
 - **THEN** guarda la entrada recibida en `reports-originals` privado y la copia saneada en `reports-public`, con ruta `{report_id}.{ext}`
 - **THEN** invoca `publish_report`, que inserta el reporte `pending` con el ID reservado y completa la clave en una transacción
-- **THEN** la respuesta incluye dirección y URL pública de la copia; la propiedad `Photo.expiresAt` omitida permanece como desviación conocida del contrato
+- **THEN** la respuesta incluye dirección y URL pública de la copia, con `Photo.expiresAt` en `null` porque esa URL no vence
 
 #### Scenario: JSON del reporte mal formado
 
@@ -51,13 +51,13 @@ El backend SHALL delimitar la clave por usuario autenticado, reservar y persisti
 #### Scenario: Cuarto claim activo
 
 - **WHEN** una cuenta ya tiene tres claims `in_progress` con lock vigente e intenta un cuarto
-- **THEN** el claim se rechaza con `PUBLICATION_IN_PROGRESS` (HTTP 409) y `Retry-After`
+- **THEN** el claim se rechaza con `RATE_LIMITED` (HTTP 429) y `Retry-After` en segundos
 - **THEN** no se reserva un ID para el claim rechazado ni se sube una foto
 
 #### Scenario: Reporte 11 dentro de 24 horas
 
 - **WHEN** una cuenta ya publicó diez reportes en la ventana móvil de 24 horas e intenta reclamar el reporte 11
-- **THEN** el claim se rechaza con `PUBLICATION_IN_PROGRESS` (HTTP 409) y `Retry-After`
+- **THEN** el claim se rechaza con `RATE_LIMITED` (HTTP 429) y `Retry-After` en segundos
 - **THEN** `publish_report` vuelve a aplicar el límite antes de insertar por si el conteo cambió después del claim
 
 #### Scenario: Clave reutilizada con contenido distinto o lock activo
@@ -98,18 +98,16 @@ El catálogo SHALL leer solo `public_reports`, con estados `pending` y `citizen-
 
 - **WHEN** la fila mapeada para lista o detalle no cumple otra regla del DTO
 - **THEN** el servicio responde con error interno genérico sin filtrar el error de base
-- **THEN** el validador compartido se ejecuta sobre una copia temporal que añade una fecha sintácticamente válida para comprobar el resto del DTO
-- **THEN** esa fecha temporal nunca se añade a la respuesta real
+- **THEN** el validador compartido se ejecuta sobre el DTO real, sin copias ni fechas agregadas
 
-### Requirement: Desviación conocida de `Photo.expiresAt`
+### Requirement: Foto pública sin vencimiento
 
-El cambio SHALL respetar el contrato actual, que requiere `Photo.expiresAt` con fecha UTC. El backend SHALL NOT inventar un vencimiento para una URL pública que no vence ni afirmar que lista o detalle pasan el validador completo.
+El backend SHALL devolver `Photo.expiresAt` en `null` para la copia pública, porque `getPublicUrl` no vence, y SHALL NOT inventar un vencimiento. Lista y detalle SHALL pasar el validador completo del contrato.
 
 #### Scenario: Respuesta pública sin vencimiento
 
 - **WHEN** lista o detalle crea el DTO desde `photo_public_path`
-- **THEN** omite `expiresAt` y las pruebas comprueban que `validateReport` rechaza la respuesta real por ese campo
-- **THEN** el cambio nullable queda diferido a un PR independiente desde `main`, con revisión de Agus, Valen y Fran
+- **THEN** `photo.expiresAt` es `null` y `validateReport` acepta la respuesta real
 
 ### Requirement: Confirmaciones ciudadanas atómicas
 

@@ -11,13 +11,13 @@ El proyecto ya comparte contratos y validadores para reportes, pero necesita per
 - Guardar la original recibida en un bucket privado y una copia saneada sin metadatos en un bucket público; limitar cada imagen a 4 MiB.
 - Implementar endpoints multipart, lista, detalle y confirmaciones, con límites de carga, validación de respuestas y mensajes sin datos internos.
 - Preparar evidencia unitaria y estática, más integración para un proyecto de pruebas en la nube. Las migraciones y la integración aún no se probaron contra una base.
-- Mantener explícita la desviación del contrato actual: lista y detalle omiten `Photo.expiresAt`; no se inventa un vencimiento y las pruebas mantienen visible el rechazo del validador compartido.
+- Devolver `Photo.expiresAt` en `null` para la copia pública, que no vence, y responder las cuotas con `RATE_LIMITED` (429), según el contrato ajustado en `adjust-photo-expiry-and-rate-limit` (PR #18).
 
 ## Dependencias y orden de integración
 
 - El PR #3 de Fran (`add-report-address`) ya está integrado en `main`; el backend consume `Location.address` directamente.
 - El PR de `feature/reports-backend` depende de ese contrato ya mergeado y debe integrarse después de las revisiones del equipo.
-- El cambio nullable de `Photo.expiresAt` corresponde a un PR separado desde `main`, con revisión de Agus, Valen y Fran. No forma parte de este cambio.
+- El contrato nullable de `Photo.expiresAt` y el código `RATE_LIMITED` llegaron en el PR #18 (`adjust-photo-expiry-and-rate-limit`); este backend los consume desde la rama `fix/backend-contrato-fotos-cuotas`.
 
 ## Capacidades
 
